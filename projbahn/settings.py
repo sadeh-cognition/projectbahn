@@ -116,3 +116,6 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+PROJBAHN_API_BASE_URL = "http://localhost:8001/api"
+PROJBAHN_FRONTEND_API_TRANSPORT = "http"

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Projbahn</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-json-enc@2.0.0/json-enc.js"></script>
+    <script>
+        window.projbahn = {
+            parseResponse(xhr) {
+                if (!xhr.responseText) {
+                    return null;
+                }
+                try {
+                    return JSON.parse(xhr.responseText);
+                } catch {
+                    return null;
+                }
+            },
+            escapeHtml(value) {
+                return String(value)
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#39;");
+            },
+            showFeedback(kind, message) {
+                const container = document.getElementById("api-feedback");
+                if (!container) {
+                    return;
+                }
+                if (!message) {
+                    container.innerHTML = "";
+                    return;
+                }
+                const styles = kind === "error"
+                    ? "border-rose-500/40 bg-rose-500/10 text-rose-100"
+                    : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100";
+                container.innerHTML = `<div class="rounded-2xl border px-4 py-3 text-sm ${styles}">${this.escapeHtml(message)}</div>`;
+            },
+            readError(xhr) {
+                const payload = this.parseResponse(xhr);
+                if (payload && typeof payload.detail === "string") {
+                    return payload.detail;
+                }
+                return xhr.responseText || `Request failed with status ${xhr.status}.`;
+            },
+            handleResult(event, onSuccess) {
+                if (!event.detail.successful) {
+                    this.showFeedback("error", this.readError(event.detail.xhr));
+                    return;
+                }
+                this.showFeedback("success", "");
+                onSuccess();
+            },
+            goToDashboard(params) {
+                const query = new URLSearchParams();
+                for (const [key, value] of Object.entries(params)) {
+                    if (value !== null && value !== undefined && value !== "") {
+                        query.set(key, value);
+                    }
+                }
+                const suffix = query.toString();
+                window.location = suffix ? `/?${suffix}` : "/";
+            },
+            refreshWorkspace(params) {
+                const url = new URL(window.location.href);
+                for (const [key, value] of Object.entries(params)) {
+                    if (value === null || value === undefined || value === "") {
+                        url.searchParams.delete(key);
+                    } else {
+                        url.searchParams.set(key, value);
+                    }
+                }
+                const query = url.searchParams.toString();
+                htmx.ajax("GET", `/workspace/${query ? `?${query}` : ""}`, {
+                    target: "#workspace-panel",
+                    swap: "innerHTML",
+                });
+                history.replaceState({}, "", query ? `/?${query}` : "/");
+            },
+            handleCreateProject(event) {
+                this.handleResult(event, () => {
+                    const project = this.parseResponse(event.detail.xhr);
+                    if (project && project.id) {
+                        this.goToDashboard({ project_id: project.id, tab: "tasks" });
+                    }
+                });
+            },
+            handleUpdateProject(event, projectId) {
+                this.handleResult(event, () => {
+                    this.goToDashboard({ project_id: projectId, tab: "project_settings" });
+                });
+            },
+            handleDeleteProject(event) {
+                this.handleResult(event, () => {
+                    this.goToDashboard({});
+                });
+            },
+            openDialog(dialogId) {
+                const dialog = document.getElementById(dialogId);
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                    return;
+                }
+                dialog.setAttribute("open", "open");
+            },
+            closeDialog(dialogId) {
+                const dialog = document.getElementById(dialogId);
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                    return;
+                }
+                dialog.removeAttribute("open");
+            },
+            handleFeatureMutation(event, projectId) {
+                this.handleResult(event, () => {
+                    this.closeDialog("create-feature-dialog");
+                    this.refreshWorkspace({
+                        project_id: projectId,
+                        tab: "features",
+                        edit_feature_id: null,
+                    });
+                });
+            },
+            handleTaskMutation(event, projectId) {
+                this.handleResult(event, () => {
+                    this.closeDialog("create-task-dialog");
+                    this.refreshWorkspace({
+                        project_id: projectId,
+                        tab: "tasks",
+                        edit_task_id: null,
+                    });
+                });
+            },
+        };
+    </script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+    <div class="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row lg:px-6">
+        <aside class="w-full shrink-0 rounded-3xl border border-stone-800 bg-stone-900/90 p-5 shadow-2xl lg:w-80">
+            <div class="mb-6">
+                <p class="text-xs uppercase tracking-[0.3em] text-amber-400">Projbahn</p>
+                <h1 class="mt-2 text-3xl font-semibold text-stone-50">Projects</h1>
+                <p class="mt-2 text-sm text-stone-400">Manage projects, nested features, and delivery work from one page.</p>
+            </div>
+
+            <form
+                method="post"
+                hx-ext="json-enc"
+                hx-post="/api/projects"
+                hx-swap="none"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                hx-on::after-request="window.projbahn.handleCreateProject(event)"
+                class="space-y-3 rounded-2xl border border-stone-800 bg-stone-950/70 p-4"
+            >
+                <div>
+                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400" for="new-project-name">Project name</label>
+                    <input id="new-project-name" name="name" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none ring-0 placeholder:text-stone-500" placeholder="Platform overhaul">
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400" for="new-project-description">Description</label>
+                    <textarea id="new-project-description" name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none placeholder:text-stone-500" placeholder="What this project is for"></textarea>
+                </div>
+                <button type="submit" class="w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950">Create project</button>
+            </form>
+
+            <div class="mt-6 space-y-2">
+                {% for project in projects %}
+                    <button
+                        type="button"
+                        hx-get="{% url 'workspace' %}?project_id={{ project.id }}&tab=tasks"
+                        hx-target="#workspace-panel"
+                        hx-swap="innerHTML"
+                        hx-push-url="/?project_id={{ project.id }}&tab=tasks"
+                        class="w-full rounded-2xl border px-4 py-3 text-left transition {% if selected_project and selected_project.id == project.id %}border-amber-400 bg-amber-400/10 text-stone-50{% else %}border-stone-800 bg-stone-950/60 text-stone-300 hover:border-stone-700 hover:bg-stone-900{% endif %}"
+                    >
+                        <div class="text-sm font-semibold">{{ project.name }}</div>
+                        <div class="mt-1 line-clamp-2 text-xs text-stone-400">{{ project.description|default:"No description yet." }}</div>
+                    </button>
+                {% empty %}
+                    <div class="rounded-2xl border border-dashed border-stone-700 px-4 py-6 text-sm text-stone-400">
+                        Create your first project to open the workspace.
+                    </div>
+                {% endfor %}
+            </div>
+        </aside>
+
+        <main class="min-w-0 flex-1">
+            <div id="api-feedback" class="mb-4"></div>
+            {% if messages %}
+                <div class="mb-4 space-y-2">
+                    {% for message in messages %}
+                        <div class="rounded-2xl border px-4 py-3 text-sm {% if message.tags == 'error' %}border-rose-500/40 bg-rose-500/10 text-rose-100{% else %}border-emerald-500/40 bg-emerald-500/10 text-emerald-100{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div id="workspace-panel">
+                {% include "projects/partials/workspace.html" %}
+            </div>
+        </main>
+    </div>
+</body>
+</html>

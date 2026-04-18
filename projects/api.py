@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
+from django.db.models import Q, QuerySet
 from ninja.errors import HttpError
 from ninja import NinjaAPI
 from ninja.responses import Status
@@ -18,6 +19,7 @@ from projects.schemas import (
     TaskCreateSchema,
     TaskResponseSchema,
     TaskUpdateSchema,
+    UserResponseSchema,
 )
 
 api = NinjaAPI()
@@ -48,6 +50,32 @@ def _validate_parent_feature(
             if ancestor.id == feature_id:
                 raise HttpError(400, "A feature cannot be assigned to its own descendant.")
             ancestor = ancestor.parent_feature
+
+
+def _serialize_task(task: Task) -> TaskResponseSchema:
+    return TaskResponseSchema(
+        id=task.id,
+        project_id=task.feature.project_id,
+        project_name=task.feature.project.name,
+        feature_id=task.feature_id,
+        feature_name=task.feature.name,
+        user_id=task.user_id,
+        user_username=task.user.get_username(),
+        title=task.title,
+        description=task.description,
+        status=task.status,
+        date_created=task.date_created,
+        date_updated=task.date_updated,
+    )
+
+
+def _tasks_queryset() -> QuerySet[Task]:
+    return Task.objects.select_related("feature__project", "user")
+
+
+@api.get("/users", response=list[UserResponseSchema])
+def list_users(request: HttpRequest) -> list[User]:
+    return list(User.objects.order_by("username", "id"))
 
 
 @api.get("/projects", response=list[ProjectResponseSchema])
@@ -143,27 +171,69 @@ def delete_feature(request: HttpRequest, feature_id: int) -> Status[None]:
 
 
 @api.get("/tasks", response=list[TaskResponseSchema])
-def list_tasks(request: HttpRequest) -> list[Task]:
-    return list(Task.objects.select_related("feature", "user").order_by("id"))
+def list_tasks(
+    request: HttpRequest,
+    project_id: int | None = None,
+    feature_id: int | None = None,
+    search: str | None = None,
+    status: str | None = None,
+    assignee: str | None = None,
+    sort_by: str = "date_updated",
+    sort_dir: str = "desc",
+) -> list[TaskResponseSchema]:
+    queryset = _tasks_queryset()
+
+    if project_id is not None:
+        queryset = queryset.filter(feature__project_id=project_id)
+    if feature_id is not None:
+        queryset = queryset.filter(feature_id=feature_id)
+    if search:
+        queryset = queryset.filter(
+            Q(title__icontains=search)
+            | Q(description__icontains=search)
+            | Q(feature__name__icontains=search)
+            | Q(user__username__icontains=search)
+        )
+    if status:
+        queryset = queryset.filter(status__icontains=status)
+    if assignee:
+        queryset = queryset.filter(user__username__icontains=assignee)
+
+    sort_fields = {
+        "title": "title",
+        "status": "status",
+        "feature": "feature__name",
+        "assignee": "user__username",
+        "date_created": "date_created",
+        "date_updated": "date_updated",
+    }
+    order_field = sort_fields.get(sort_by, "date_updated")
+    ordering_prefix = "" if sort_dir == "asc" else "-"
+    tasks = queryset.order_by(f"{ordering_prefix}{order_field}", f"{ordering_prefix}id")
+    return [_serialize_task(task) for task in tasks]
 
 
 @api.post("/tasks", response=TaskResponseSchema)
 def create_task(
     request: HttpRequest,
     payload: TaskCreateSchema,
-) -> Task:
+) -> TaskResponseSchema:
     feature = get_object_or_404(Feature, id=payload.feature_id)
     user = get_object_or_404(User, id=payload.user_id)
-    return Task.objects.create(
+    task = Task.objects.create(
         feature=feature,
         user=user,
+        title=payload.title,
+        description=payload.description,
         status=payload.status,
     )
+    return _serialize_task(_tasks_queryset().get(id=task.id))
 
 
 @api.get("/tasks/{task_id}", response=TaskResponseSchema)
-def get_task(request: HttpRequest, task_id: int) -> Task:
-    return get_object_or_404(Task.objects.select_related("feature", "user"), id=task_id)
+def get_task(request: HttpRequest, task_id: int) -> TaskResponseSchema:
+    task = get_object_or_404(_tasks_queryset(), id=task_id)
+    return _serialize_task(task)
 
 
 @api.put("/tasks/{task_id}", response=TaskResponseSchema)
@@ -171,15 +241,17 @@ def update_task(
     request: HttpRequest,
     task_id: int,
     payload: TaskUpdateSchema,
-) -> Task:
+) -> TaskResponseSchema:
     task = get_object_or_404(Task, id=task_id)
     feature = get_object_or_404(Feature, id=payload.feature_id)
     user = get_object_or_404(User, id=payload.user_id)
     task.feature = feature
     task.user = user
+    task.title = payload.title
+    task.description = payload.description
     task.status = payload.status
-    task.save(update_fields=["feature", "user", "status", "date_updated"])
-    return task
+    task.save(update_fields=["feature", "user", "title", "description", "status", "date_updated"])
+    return _serialize_task(_tasks_queryset().get(id=task.id))
 
 
 @api.delete("/tasks/{task_id}", response={204: None})

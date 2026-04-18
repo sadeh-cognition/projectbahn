@@ -1,0 +1,504 @@
+{% if not selected_project %}
+    <section class="rounded-3xl border border-dashed border-stone-700 bg-stone-900/60 px-8 py-16 text-center">
+        <p class="text-xs uppercase tracking-[0.3em] text-stone-500">Workspace</p>
+        <h2 class="mt-3 text-3xl font-semibold text-stone-100">Select a project</h2>
+        <p class="mx-auto mt-3 max-w-xl text-sm text-stone-400">Choose a project from the left rail to open its task table or feature workspace.</p>
+    </section>
+{% else %}
+    <section class="rounded-3xl border border-stone-800 bg-stone-900/90 p-6 shadow-2xl">
+        <div class="flex flex-col gap-3 border-b border-stone-800 pb-6 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <p class="text-xs uppercase tracking-[0.3em] text-cyan-400">Active Project</p>
+                <h2 class="mt-2 text-3xl font-semibold text-stone-50">{{ selected_project.name }}</h2>
+                <p class="mt-2 max-w-3xl text-sm text-stone-400">{{ selected_project.description|default:"No description yet." }}</p>
+            </div>
+            <div class="grid gap-3 text-sm text-stone-300 sm:grid-cols-3">
+                <div class="rounded-2xl border border-stone-800 bg-stone-950/70 px-4 py-3">
+                    <div class="text-xs uppercase tracking-wide text-stone-500">Features</div>
+                    <div class="mt-2 text-2xl font-semibold text-stone-50">{{ feature_options|length }}</div>
+                </div>
+                <div class="rounded-2xl border border-stone-800 bg-stone-950/70 px-4 py-3">
+                    <div class="text-xs uppercase tracking-wide text-stone-500">Tasks</div>
+                    <div class="mt-2 text-2xl font-semibold text-stone-50">{{ tasks|length }}</div>
+                </div>
+                <div class="rounded-2xl border border-stone-800 bg-stone-950/70 px-4 py-3">
+                    <div class="text-xs uppercase tracking-wide text-stone-500">People</div>
+                    <div class="mt-2 text-2xl font-semibold text-stone-50">{{ users|length }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 flex flex-wrap gap-3 border-b border-stone-800 pb-6">
+            <a
+                href="/?project_id={{ selected_project.id }}&tab=tasks"
+                hx-get="{% url 'workspace' %}?project_id={{ selected_project.id }}&tab=tasks"
+                hx-target="#workspace-panel"
+                hx-swap="innerHTML"
+                hx-push-url="/?project_id={{ selected_project.id }}&tab=tasks"
+                class="rounded-full px-4 py-2 text-sm font-semibold transition {% if active_tab == 'tasks' %}bg-emerald-400 text-stone-950{% else %}border border-stone-700 text-stone-300 hover:border-stone-600 hover:text-stone-100{% endif %}"
+            >
+                Tasks
+            </a>
+            <a
+                href="/?project_id={{ selected_project.id }}&tab=features"
+                hx-get="{% url 'workspace' %}?project_id={{ selected_project.id }}&tab=features"
+                hx-target="#workspace-panel"
+                hx-swap="innerHTML"
+                hx-push-url="/?project_id={{ selected_project.id }}&tab=features"
+                class="rounded-full px-4 py-2 text-sm font-semibold transition {% if active_tab == 'features' %}bg-amber-400 text-stone-950{% else %}border border-stone-700 text-stone-300 hover:border-stone-600 hover:text-stone-100{% endif %}"
+            >
+                Features
+            </a>
+            <a
+                href="/?project_id={{ selected_project.id }}&tab=project_settings"
+                hx-get="{% url 'workspace' %}?project_id={{ selected_project.id }}&tab=project_settings"
+                hx-target="#workspace-panel"
+                hx-swap="innerHTML"
+                hx-push-url="/?project_id={{ selected_project.id }}&tab=project_settings"
+                class="rounded-full px-4 py-2 text-sm font-semibold transition {% if active_tab == 'project_settings' %}bg-cyan-400 text-stone-950{% else %}border border-stone-700 text-stone-300 hover:border-stone-600 hover:text-stone-100{% endif %}"
+            >
+                Project Settings
+            </a>
+        </div>
+
+        {% if active_tab == "project_settings" %}
+            <div class="mt-6">
+                <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                    <div class="mb-4 flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-stone-50">Project settings</h3>
+                        <form
+                            method="post"
+                            hx-delete="/api/projects/{{ selected_project.id }}"
+                            hx-swap="none"
+                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                            hx-on::after-request="window.projbahn.handleDeleteProject(event)"
+                        >
+                            <button type="submit" class="rounded-xl border border-rose-500/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-rose-200">Delete project</button>
+                        </form>
+                    </div>
+                    <form
+                        method="post"
+                        hx-ext="json-enc"
+                        hx-put="/api/projects/{{ selected_project.id }}"
+                        hx-swap="none"
+                        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                        hx-on::after-request="window.projbahn.handleUpdateProject(event, {{ selected_project.id }})"
+                        class="space-y-3"
+                    >
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Name</label>
+                            <input name="name" required value="{{ selected_project.name }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
+                            <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">{{ selected_project.description }}</textarea>
+                        </div>
+                        <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save project</button>
+                    </form>
+                </section>
+            </div>
+        {% elif active_tab == "features" %}
+            <div class="mx-auto mt-6 max-w-5xl space-y-6">
+                {% if edit_feature %}
+                    <form
+                        method="post"
+                        hx-ext="json-enc"
+                        hx-put="/api/features/{{ edit_feature.id }}"
+                        hx-swap="none"
+                        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                        hx-on::after-request="window.projbahn.handleFeatureMutation(event, {{ selected_project.id }})"
+                        class="space-y-3 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4"
+                    >
+                        <input type="hidden" name="project_id" value="{{ selected_project.id }}">
+                        <div class="text-sm font-semibold text-cyan-100">Edit feature: {{ edit_feature.name }}</div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Parent feature</label>
+                            <select name="parent_feature_id" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                <option value="">No parent</option>
+                                {% for option in feature_options %}
+                                    <option value="{{ option.id }}" {% if option.id == edit_feature.parent_feature_id %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Name</label>
+                            <input name="name" required value="{{ edit_feature.name }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
+                            <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">{{ edit_feature.description }}</textarea>
+                        </div>
+                        <div class="flex gap-3">
+                            <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save feature</button>
+                            <a href="/?project_id={{ selected_project.id }}&tab=features" class="rounded-xl border border-stone-700 px-4 py-2 text-sm text-stone-300">Cancel</a>
+                        </div>
+                    </form>
+                {% endif %}
+
+                <div class="space-y-6">
+                    <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <h3 class="text-lg font-semibold text-stone-50">Features</h3>
+                                <p class="mt-1 text-sm text-stone-400">Manage the project feature list and add new items from a popup form.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onclick="window.projbahn.openDialog('create-feature-dialog')"
+                                class="inline-flex items-center justify-center rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950"
+                            >
+                                Add feature
+                            </button>
+                        </div>
+
+                        <dialog id="create-feature-dialog" class="w-full max-w-2xl rounded-3xl border border-stone-700 bg-stone-950 p-0 text-stone-100 shadow-2xl backdrop:bg-stone-950/80">
+                            <form method="dialog" class="border-b border-stone-800 px-5 py-4">
+                                <div class="flex items-center justify-between gap-4">
+                                    <div>
+                                        <h4 class="text-base font-semibold text-stone-50">Create feature</h4>
+                                        <p class="mt-1 text-sm text-stone-400">Create a feature with an optional parent.</p>
+                                    </div>
+                                    <button type="submit" class="rounded-lg border border-stone-700 px-3 py-1.5 text-sm text-stone-300">Close</button>
+                                </div>
+                            </form>
+
+                            <form
+                                method="post"
+                                hx-ext="json-enc"
+                                hx-post="/api/features"
+                                hx-swap="none"
+                                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                hx-on::after-request="window.projbahn.handleFeatureMutation(event, {{ selected_project.id }})"
+                                class="space-y-3 px-5 py-5"
+                            >
+                                <input type="hidden" name="project_id" value="{{ selected_project.id }}">
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Parent feature</label>
+                                    <select name="parent_feature_id" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                        <option value="">No parent</option>
+                                        {% for option in feature_options %}
+                                            <option value="{{ option.id }}">{{ option.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Name</label>
+                                    <input name="name" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
+                                    <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100"></textarea>
+                                </div>
+                                <div class="flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onclick="window.projbahn.closeDialog('create-feature-dialog')"
+                                        class="rounded-xl border border-stone-700 px-4 py-2 text-sm text-stone-300"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button type="submit" class="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950">Create feature</button>
+                                </div>
+                            </form>
+                        </dialog>
+                    </section>
+
+                    <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                        <h3 class="text-lg font-semibold text-stone-50">Feature table</h3>
+                        <p class="mt-1 text-sm text-stone-400">Review parent-child structure and edit or delete features from one table.</p>
+
+                        {% if feature_rows %}
+                            <div class="mt-5 overflow-hidden rounded-2xl border border-stone-800">
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full divide-y divide-stone-800 text-sm">
+                                        <thead class="bg-stone-900/80 text-left text-xs uppercase tracking-wide text-stone-400">
+                                            <tr>
+                                                <th class="px-4 py-3">Feature</th>
+                                                <th class="px-4 py-3">Description</th>
+                                                <th class="px-4 py-3">Parent</th>
+                                                <th class="px-4 py-3 text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-stone-800 bg-stone-950/40 text-stone-200">
+                                            {% for row in feature_rows %}
+                                                <tr>
+                                                    <td class="px-4 py-3">
+                                                        <div class="font-medium text-stone-50" style="padding-left: {{ row.depth }}rem;">
+                                                            {% if row.depth %}&boxur; {% endif %}{{ row.feature.name }}
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-4 py-3 text-stone-400">{{ row.feature.description|default:"No description yet." }}</td>
+                                                    <td class="px-4 py-3 text-stone-400">{{ row.parent_name }}</td>
+                                                    <td class="px-4 py-3">
+                                                        <div class="flex justify-end gap-2">
+                                                            <a href="/?project_id={{ selected_project.id }}&tab=features&edit_feature_id={{ row.feature.id }}" class="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-200">Edit</a>
+                                                            <form
+                                                                method="post"
+                                                                hx-delete="/api/features/{{ row.feature.id }}"
+                                                                hx-swap="none"
+                                                                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                                                hx-on::after-request="window.projbahn.handleFeatureMutation(event, {{ selected_project.id }})"
+                                                            >
+                                                                <button type="submit" class="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200">Delete</button>
+                                                            </form>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        {% else %}
+                            <p class="mt-4 rounded-2xl border border-dashed border-stone-700 px-4 py-6 text-sm text-stone-400">No features yet.</p>
+                        {% endif %}
+                    </section>
+                </div>
+            </div>
+        {% else %}
+            <div class="mt-6 space-y-6">
+                <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h3 class="text-lg font-semibold text-stone-50">Tasks</h3>
+                            <p class="mt-1 text-sm text-stone-400">Manage project tasks and add new ones from a popup form.</p>
+                        </div>
+                        {% if users and feature_options %}
+                            <button
+                                type="button"
+                                onclick="window.projbahn.openDialog('create-task-dialog')"
+                                class="inline-flex items-center justify-center rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-stone-950"
+                            >
+                                Add task
+                            </button>
+                        {% endif %}
+                    </div>
+
+                    {% if not users %}
+                        <div class="mt-4 rounded-2xl border border-dashed border-stone-700 px-4 py-6 text-sm text-stone-400">
+                            Create at least one Django user before assigning tasks.
+                        </div>
+                    {% elif not feature_options %}
+                        <div class="mt-4 rounded-2xl border border-dashed border-stone-700 px-4 py-6 text-sm text-stone-400">
+                            Add a feature before creating tasks in this project.
+                        </div>
+                    {% else %}
+                        <dialog id="create-task-dialog" class="mt-5 w-full max-w-2xl rounded-3xl border border-stone-700 bg-stone-950 p-0 text-stone-100 shadow-2xl backdrop:bg-stone-950/80">
+                            <form method="dialog" class="border-b border-stone-800 px-5 py-4">
+                                <div class="flex items-center justify-between gap-4">
+                                    <div>
+                                        <h4 class="text-base font-semibold text-stone-50">Create task</h4>
+                                        <p class="mt-1 text-sm text-stone-400">Add a task for a feature in this project.</p>
+                                    </div>
+                                    <button type="submit" class="rounded-lg border border-stone-700 px-3 py-1.5 text-sm text-stone-300">Close</button>
+                                </div>
+                            </form>
+
+                            <form
+                                method="post"
+                                hx-ext="json-enc"
+                                hx-post="/api/tasks"
+                                hx-swap="none"
+                                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})"
+                                class="grid gap-3 px-5 py-5"
+                            >
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Title</label>
+                                    <input name="title" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                </div>
+                                <div class="grid gap-3 md:grid-cols-2">
+                                    <div>
+                                        <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Feature</label>
+                                        <select name="feature_id" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                            {% for option in feature_options %}
+                                                <option value="{{ option.id }}">{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Assignee</label>
+                                        <select name="user_id" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                            {% for user in users %}
+                                                <option value="{{ user.id }}">{{ user.username }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Status</label>
+                                    <input name="status" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100" placeholder="In progress">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
+                                    <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100"></textarea>
+                                </div>
+                                <div class="flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onclick="window.projbahn.closeDialog('create-task-dialog')"
+                                        class="rounded-xl border border-stone-700 px-4 py-2 text-sm text-stone-300"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button type="submit" class="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-semibold text-stone-950">Create task</button>
+                                </div>
+                            </form>
+                        </dialog>
+                    {% endif %}
+
+                    {% if edit_task %}
+                        <form
+                            method="post"
+                            hx-ext="json-enc"
+                            hx-put="/api/tasks/{{ edit_task.id }}"
+                            hx-swap="none"
+                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                            hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})"
+                            class="mt-5 grid gap-3 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4"
+                        >
+                            <div class="text-sm font-semibold text-cyan-100">Edit task: {{ edit_task.title }}</div>
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Title</label>
+                                <input name="title" required value="{{ edit_task.title }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                            </div>
+                            <div class="grid gap-3 md:grid-cols-2">
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Feature</label>
+                                    <select name="feature_id" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                        {% for option in feature_options %}
+                                            <option value="{{ option.id }}" {% if option.id == edit_task.feature_id %}selected{% endif %}>{{ option.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Assignee</label>
+                                    <select name="user_id" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                        {% for user in users %}
+                                            <option value="{{ user.id }}" {% if user.id == edit_task.user_id %}selected{% endif %}>{{ user.username }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Status</label>
+                                <input name="status" required value="{{ edit_task.status }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
+                                <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">{{ edit_task.description }}</textarea>
+                            </div>
+                            <div class="flex gap-3">
+                                <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save task</button>
+                                <a href="/?project_id={{ selected_project.id }}&tab=tasks" class="rounded-xl border border-stone-700 px-4 py-2 text-sm text-stone-300">Cancel</a>
+                            </div>
+                        </form>
+                    {% endif %}
+                </section>
+
+                <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                    <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h3 class="text-lg font-semibold text-stone-50">Project task table</h3>
+                            <p class="mt-1 text-sm text-stone-400">Filter and sort all tasks in this project.</p>
+                        </div>
+                    </div>
+
+                    <form
+                        method="get"
+                        action="{% url 'workspace' %}"
+                        hx-get="{% url 'workspace' %}"
+                        hx-target="#workspace-panel"
+                        hx-swap="innerHTML"
+                        hx-push-url="true"
+                        class="mt-5 grid gap-3 rounded-2xl border border-stone-800 bg-stone-900/60 p-4 md:grid-cols-5"
+                    >
+                        <input type="hidden" name="project_id" value="{{ selected_project.id }}">
+                        <input type="hidden" name="tab" value="tasks">
+                        <div class="md:col-span-2">
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Search</label>
+                            <input name="search" value="{{ task_filters.search }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100" placeholder="Title, description, feature, assignee">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Status</label>
+                            <input name="status" value="{{ task_filters.status }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100" placeholder="Blocked">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Assignee</label>
+                            <input name="assignee" value="{{ task_filters.assignee }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100" placeholder="alex">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Sort by</label>
+                            <select name="sort_by" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                {% for value, label in task_sort_options %}
+                                    <option value="{{ value }}" {% if task_filters.sort_by == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Direction</label>
+                            <select name="sort_dir" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                {% for value, label in task_sort_directions %}
+                                    <option value="{{ value }}" {% if task_filters.sort_dir == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="flex items-end gap-3 md:col-span-2">
+                            <button type="submit" class="rounded-xl bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-950">Apply</button>
+                            <a href="/?project_id={{ selected_project.id }}&tab=tasks" class="rounded-xl border border-stone-700 px-4 py-2 text-sm text-stone-300">Reset</a>
+                        </div>
+                    </form>
+
+                    <div class="mt-5 overflow-hidden rounded-2xl border border-stone-800">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-stone-800 text-sm">
+                                <thead class="bg-stone-900">
+                                    <tr class="text-left text-xs uppercase tracking-wide text-stone-400">
+                                        <th class="px-4 py-3">Task</th>
+                                        <th class="px-4 py-3">Status</th>
+                                        <th class="px-4 py-3">Feature</th>
+                                        <th class="px-4 py-3">Assignee</th>
+                                        <th class="px-4 py-3">Updated</th>
+                                        <th class="px-4 py-3">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-stone-800 bg-stone-950/70">
+                                    {% for task in tasks %}
+                                        <tr class="align-top text-stone-200">
+                                            <td class="px-4 py-4">
+                                                <div class="font-semibold text-stone-50">{{ task.title }}</div>
+                                                <div class="mt-1 max-w-md text-xs text-stone-400">{{ task.description|default:"No description." }}</div>
+                                            </td>
+                                            <td class="px-4 py-4">{{ task.status }}</td>
+                                            <td class="px-4 py-4">{{ task.feature_name }}</td>
+                                            <td class="px-4 py-4">{{ task.user_username }}</td>
+                                            <td class="px-4 py-4 text-xs text-stone-400">{{ task.date_updated|date:"Y-m-d H:i" }}</td>
+                                            <td class="px-4 py-4">
+                                                <div class="flex gap-2">
+                                                    <a href="/?project_id={{ selected_project.id }}&tab=tasks&edit_task_id={{ task.id }}" class="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-200">Edit</a>
+                                                    <form
+                                                        method="post"
+                                                        hx-delete="/api/tasks/{{ task.id }}"
+                                                        hx-swap="none"
+                                                        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                                        hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})"
+                                                    >
+                                                        <button type="submit" class="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200">Delete</button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% empty %}
+                                        <tr>
+                                            <td colspan="6" class="px-4 py-8 text-center text-sm text-stone-400">No tasks match the current filters.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        {% endif %}
+    </section>
+{% endif %}

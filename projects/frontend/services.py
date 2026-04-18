@@ -11,6 +11,12 @@ class FeatureNode:
     children: list["FeatureNode"] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class FeatureOption:
+    id: int
+    label: str
+
+
 def features_for_project(
     *,
     project_id: int,
@@ -54,6 +60,12 @@ def flatten_feature_tree(nodes: list[FeatureNode]) -> list[tuple[int, FeatureRes
     return flattened
 
 
+def build_feature_options(nodes: list[FeatureNode]) -> list[FeatureOption]:
+    options: list[FeatureOption] = []
+    for depth, feature in flatten_feature_tree(nodes):
+        prefix = "" if depth == 0 else f"{'--' * depth} "
+        options.append(FeatureOption(id=feature.id, label=f"{prefix}{feature.name}"))
+    return options
 def _flatten_children(
     nodes: list[FeatureNode],
     *,

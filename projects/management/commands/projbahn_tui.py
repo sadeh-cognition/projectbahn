@@ -9,7 +9,6 @@ from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
-from projects.frontend.api_client import ApiClient
 from projects.frontend.services import build_feature_tree, features_for_project, flatten_feature_tree
 from projects.schemas import (
     FeatureCreateSchema,
@@ -19,6 +18,7 @@ from projects.schemas import (
     ProjectResponseSchema,
     ProjectUpdateSchema,
 )
+from projects.tui.api_client import ApiClient
 
 console = Console()
 ResultT = TypeVar("ResultT")

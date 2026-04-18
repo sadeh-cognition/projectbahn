@@ -1,0 +1,27 @@
+<div class="rounded-2xl border border-stone-800 bg-stone-950/70 p-4">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+            <div class="text-sm font-semibold text-stone-50">{{ node.feature.name }}</div>
+            <div class="mt-1 text-xs text-stone-400">{{ node.feature.description|default:"No description yet." }}</div>
+        </div>
+        <div class="flex gap-2">
+            <a href="/?project_id={{ selected_project.id }}&tab=features&edit_feature_id={{ node.feature.id }}" class="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-200">Edit</a>
+            <form
+                method="post"
+                hx-delete="/api/features/{{ node.feature.id }}"
+                hx-swap="none"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                hx-on::after-request="window.projbahn.handleFeatureMutation(event, {{ selected_project.id }})"
+            >
+                <button type="submit" class="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200">Delete</button>
+            </form>
+        </div>
+    </div>
+    {% if node.children %}
+        <div class="mt-4 space-y-3 border-l border-stone-800 pl-4">
+            {% for node in node.children %}
+                {% include "projects/partials/feature_branch.html" with node=node selected_project=selected_project %}
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

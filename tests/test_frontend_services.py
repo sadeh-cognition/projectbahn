@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from projects.frontend.services import build_feature_tree, features_for_project, flatten_feature_tree
+from projects.frontend.services import (
+    build_feature_tree,
+    features_for_project,
+    flatten_feature_tree,
+)
 from projects.schemas import FeatureResponseSchema
 
 
