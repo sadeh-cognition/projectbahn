@@ -21,3 +21,27 @@ class ProjectResponseSchema(Schema):
     description: str
     date_created: datetime
     date_updated: datetime
+
+
+class FeatureCreateSchema(Schema):
+    project_id: int
+    parent_feature_id: int | None = None
+    name: str
+    description: str
+
+
+class FeatureUpdateSchema(Schema):
+    project_id: int
+    parent_feature_id: int | None = None
+    name: str
+    description: str
+
+
+class FeatureResponseSchema(Schema):
+    id: int
+    project_id: int
+    parent_feature_id: int | None
+    name: str
+    description: str
+    date_created: datetime
+    date_updated: datetime
