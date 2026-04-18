@@ -37,6 +37,12 @@ def _validate_parent_feature(
         raise HttpError(400, "A feature cannot be its own parent.")
     if parent_feature.project_id != project.id:
         raise HttpError(400, "Parent feature must belong to the same project.")
+    if feature_id is not None:
+        ancestor = parent_feature
+        while ancestor is not None:
+            if ancestor.id == feature_id:
+                raise HttpError(400, "A feature cannot be assigned to its own descendant.")
+            ancestor = ancestor.parent_feature
 
 
 @api.get("/projects", response=list[ProjectResponseSchema])

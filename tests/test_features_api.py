@@ -154,3 +154,35 @@ def test_update_feature_rejects_self_parent(feature: Feature) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "A feature cannot be its own parent."
+
+
+@pytest.mark.django_db
+def test_update_feature_rejects_descendant_as_parent(
+    project: Project,
+    parent_feature: Feature,
+) -> None:
+    child_feature = baker.make(
+        Feature,
+        project=project,
+        parent_feature=parent_feature,
+        name="Child",
+        description="Nested child",
+    )
+    grandchild_feature = baker.make(
+        Feature,
+        project=project,
+        parent_feature=child_feature,
+        name="Grandchild",
+        description="Nested grandchild",
+    )
+    payload = FeatureUpdateSchema(
+        project_id=project.id,
+        parent_feature_id=grandchild_feature.id,
+        name=parent_feature.name,
+        description=parent_feature.description,
+    )
+
+    response = client.put(f"/features/{parent_feature.id}", json=payload.model_dump())
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "A feature cannot be assigned to its own descendant."
