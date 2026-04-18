@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.conf import settings
 from django.db import models
 
 
@@ -29,3 +30,14 @@ class Feature(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class Task(models.Model):
+    feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name="tasks")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tasks")
+    status = models.TextField()
+    date_created = models.DateTimeField(auto_now_add=True)
+    date_updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Task {self.id} for feature {self.feature_id}"

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
+from ninja.errors import HttpError
 from ninja import NinjaAPI
 from ninja.responses import Status
-from ninja.errors import HttpError
 
-from projects.models import Feature, Project
+from projects.models import Feature, Project, Task
 from projects.schemas import (
     FeatureCreateSchema,
     FeatureResponseSchema,
@@ -14,9 +15,13 @@ from projects.schemas import (
     ProjectCreateSchema,
     ProjectResponseSchema,
     ProjectUpdateSchema,
+    TaskCreateSchema,
+    TaskResponseSchema,
+    TaskUpdateSchema,
 )
 
 api = NinjaAPI()
+User = get_user_model()
 
 
 def _get_parent_feature(parent_feature_id: int | None) -> Feature | None:
@@ -134,4 +139,51 @@ def update_feature(
 def delete_feature(request: HttpRequest, feature_id: int) -> Status[None]:
     feature = get_object_or_404(Feature, id=feature_id)
     feature.delete()
+    return Status(204, None)
+
+
+@api.get("/tasks", response=list[TaskResponseSchema])
+def list_tasks(request: HttpRequest) -> list[Task]:
+    return list(Task.objects.select_related("feature", "user").order_by("id"))
+
+
+@api.post("/tasks", response=TaskResponseSchema)
+def create_task(
+    request: HttpRequest,
+    payload: TaskCreateSchema,
+) -> Task:
+    feature = get_object_or_404(Feature, id=payload.feature_id)
+    user = get_object_or_404(User, id=payload.user_id)
+    return Task.objects.create(
+        feature=feature,
+        user=user,
+        status=payload.status,
+    )
+
+
+@api.get("/tasks/{task_id}", response=TaskResponseSchema)
+def get_task(request: HttpRequest, task_id: int) -> Task:
+    return get_object_or_404(Task.objects.select_related("feature", "user"), id=task_id)
+
+
+@api.put("/tasks/{task_id}", response=TaskResponseSchema)
+def update_task(
+    request: HttpRequest,
+    task_id: int,
+    payload: TaskUpdateSchema,
+) -> Task:
+    task = get_object_or_404(Task, id=task_id)
+    feature = get_object_or_404(Feature, id=payload.feature_id)
+    user = get_object_or_404(User, id=payload.user_id)
+    task.feature = feature
+    task.user = user
+    task.status = payload.status
+    task.save(update_fields=["feature", "user", "status", "date_updated"])
+    return task
+
+
+@api.delete("/tasks/{task_id}", response={204: None})
+def delete_task(request: HttpRequest, task_id: int) -> Status[None]:
+    task = get_object_or_404(Task, id=task_id)
+    task.delete()
     return Status(204, None)

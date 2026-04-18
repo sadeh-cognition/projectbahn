@@ -45,3 +45,24 @@ class FeatureResponseSchema(Schema):
     description: str
     date_created: datetime
     date_updated: datetime
+
+
+class TaskCreateSchema(Schema):
+    feature_id: int
+    user_id: int
+    status: str
+
+
+class TaskUpdateSchema(Schema):
+    feature_id: int
+    user_id: int
+    status: str
+
+
+class TaskResponseSchema(Schema):
+    id: int
+    feature_id: int
+    user_id: int
+    status: str
+    date_created: datetime
+    date_updated: datetime
