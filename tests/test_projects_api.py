@@ -51,6 +51,7 @@ def test_list_projects(project: Project) -> None:
     body = [ProjectResponseSchema.model_validate(item) for item in response.json()]
     assert len(body) == 1
     assert body[0].id == project.id
+    assert body[0].entity_type == EventLog.EntityType.PROJECT
     assert body[0].name == project.name
 
 

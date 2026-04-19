@@ -60,6 +60,7 @@ def _validate_parent_feature(
 def _serialize_task(task: Task) -> TaskResponseSchema:
     return TaskResponseSchema(
         id=task.id,
+        entity_type=EventLog.EntityType.TASK,
         project_id=task.feature.project_id,
         project_name=task.feature.project.name,
         feature_id=task.feature_id,
@@ -76,6 +77,30 @@ def _serialize_task(task: Task) -> TaskResponseSchema:
 
 def _tasks_queryset() -> QuerySet[Task]:
     return Task.objects.select_related("feature__project", "user")
+
+
+def _serialize_project(project: Project) -> ProjectResponseSchema:
+    return ProjectResponseSchema(
+        id=project.id,
+        entity_type=EventLog.EntityType.PROJECT,
+        name=project.name,
+        description=project.description,
+        date_created=project.date_created,
+        date_updated=project.date_updated,
+    )
+
+
+def _serialize_feature(feature: Feature) -> FeatureResponseSchema:
+    return FeatureResponseSchema(
+        id=feature.id,
+        entity_type=EventLog.EntityType.FEATURE,
+        project_id=feature.project_id,
+        parent_feature_id=feature.parent_feature_id,
+        name=feature.name,
+        description=feature.description,
+        date_created=feature.date_created,
+        date_updated=feature.date_updated,
+    )
 
 
 def _serialize_event_log(event_log: EventLog) -> EventLogResponseSchema:
@@ -165,15 +190,15 @@ def list_event_logs(
 
 
 @api.get("/projects", response=list[ProjectResponseSchema])
-def list_projects(request: HttpRequest) -> list[Project]:
-    return list(Project.objects.order_by("id"))
+def list_projects(request: HttpRequest) -> list[ProjectResponseSchema]:
+    return [_serialize_project(project) for project in Project.objects.order_by("id")]
 
 
 @api.post("/projects", response=ProjectResponseSchema)
 def create_project(
     request: HttpRequest,
     payload: ProjectCreateSchema,
-) -> Project:
+) -> ProjectResponseSchema:
     with transaction.atomic():
         project = Project.objects.create(
             name=payload.name,
@@ -184,12 +209,12 @@ def create_project(
             entity_id=project.id,
             event_type=EventLog.EventType.CREATED,
         )
-    return project
+    return _serialize_project(project)
 
 
 @api.get("/projects/{project_id}", response=ProjectResponseSchema)
-def get_project(request: HttpRequest, project_id: int) -> Project:
-    return get_object_or_404(Project, id=project_id)
+def get_project(request: HttpRequest, project_id: int) -> ProjectResponseSchema:
+    return _serialize_project(get_object_or_404(Project, id=project_id))
 
 
 @api.put("/projects/{project_id}", response=ProjectResponseSchema)
@@ -197,7 +222,7 @@ def update_project(
     request: HttpRequest,
     project_id: int,
     payload: ProjectUpdateSchema,
-) -> Project:
+) -> ProjectResponseSchema:
     project = get_object_or_404(Project, id=project_id)
     updated_values = {
         "name": payload.name,
@@ -214,7 +239,7 @@ def update_project(
             event_type=EventLog.EventType.MODIFIED,
             event_details=event_details,
         )
-    return project
+    return _serialize_project(project)
 
 
 @api.delete("/projects/{project_id}", response={204: None})
@@ -240,15 +265,18 @@ def delete_project(request: HttpRequest, project_id: int) -> Status[None]:
 
 
 @api.get("/features", response=list[FeatureResponseSchema])
-def list_features(request: HttpRequest) -> list[Feature]:
-    return list(Feature.objects.select_related("project", "parent_feature").order_by("id"))
+def list_features(request: HttpRequest) -> list[FeatureResponseSchema]:
+    return [
+        _serialize_feature(feature)
+        for feature in Feature.objects.select_related("project", "parent_feature").order_by("id")
+    ]
 
 
 @api.post("/features", response=FeatureResponseSchema)
 def create_feature(
     request: HttpRequest,
     payload: FeatureCreateSchema,
-) -> Feature:
+) -> FeatureResponseSchema:
     project = get_object_or_404(Project, id=payload.project_id)
     parent_feature = _get_parent_feature(payload.parent_feature_id)
     _validate_parent_feature(project=project, parent_feature=parent_feature)
@@ -264,12 +292,14 @@ def create_feature(
             entity_id=feature.id,
             event_type=EventLog.EventType.CREATED,
         )
-    return feature
+    return _serialize_feature(feature)
 
 
 @api.get("/features/{feature_id}", response=FeatureResponseSchema)
-def get_feature(request: HttpRequest, feature_id: int) -> Feature:
-    return get_object_or_404(Feature.objects.select_related("project", "parent_feature"), id=feature_id)
+def get_feature(request: HttpRequest, feature_id: int) -> FeatureResponseSchema:
+    return _serialize_feature(
+        get_object_or_404(Feature.objects.select_related("project", "parent_feature"), id=feature_id)
+    )
 
 
 @api.put("/features/{feature_id}", response=FeatureResponseSchema)
@@ -277,7 +307,7 @@ def update_feature(
     request: HttpRequest,
     feature_id: int,
     payload: FeatureUpdateSchema,
-) -> Feature:
+) -> FeatureResponseSchema:
     feature = get_object_or_404(Feature, id=feature_id)
     project = get_object_or_404(Project, id=payload.project_id)
     parent_feature = _get_parent_feature(payload.parent_feature_id)
@@ -301,7 +331,7 @@ def update_feature(
             event_type=EventLog.EventType.MODIFIED,
             event_details=event_details,
         )
-    return feature
+    return _serialize_feature(feature)
 
 
 @api.delete("/features/{feature_id}", response={204: None})

@@ -24,6 +24,7 @@ class ProjectUpdateSchema(Schema):
 
 class ProjectResponseSchema(Schema):
     id: int
+    entity_type: str
     name: str
     description: str
     date_created: datetime
@@ -56,6 +57,7 @@ class FeatureUpdateSchema(Schema):
 
 class FeatureResponseSchema(Schema):
     id: int
+    entity_type: str
     project_id: int
     parent_feature_id: int | None
     name: str
@@ -82,6 +84,7 @@ class TaskUpdateSchema(Schema):
 
 class TaskResponseSchema(Schema):
     id: int
+    entity_type: str
     project_id: int
     project_name: str
     feature_id: int

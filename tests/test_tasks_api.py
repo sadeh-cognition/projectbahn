@@ -93,6 +93,7 @@ def test_list_tasks(task: Task) -> None:
     body = [TaskResponseSchema.model_validate(item) for item in response.json()]
     assert len(body) == 1
     assert body[0].id == task.id
+    assert body[0].entity_type == EventLog.EntityType.TASK
     assert body[0].title == task.title
     assert body[0].status == task.status
 
@@ -213,4 +214,5 @@ def test_list_tasks_filters_by_project_and_sorts_by_title(user) -> None:
 
     assert response.status_code == 200
     body = [TaskResponseSchema.model_validate(item) for item in response.json()]
+    assert [item.entity_type for item in body] == [EventLog.EntityType.TASK]
     assert [(item.project_id, item.title) for item in body] == [(first_project.id, "Add auth")]

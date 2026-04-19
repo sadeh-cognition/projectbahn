@@ -33,6 +33,7 @@ def test_server_logs_pretty_json_for_successful_api_response(
     assert response.status_code == 200
     body = [ProjectResponseSchema.model_validate(item) for item in response.json()]
     assert [item.id for item in body] == [project.id]
+    assert [item.entity_type for item in body] == ["Project"]
     assert "HTTP GET /api/projects returned 200" in caplog.text
     assert '"name": "Server Logging"' in caplog.text
 

@@ -100,6 +100,7 @@ def test_list_features(feature: Feature) -> None:
     body = [FeatureResponseSchema.model_validate(item) for item in response.json()]
     assert len(body) == 2
     assert [item.id for item in body] == [feature.parent_feature_id, feature.id]
+    assert [item.entity_type for item in body] == [EventLog.EntityType.FEATURE, EventLog.EntityType.FEATURE]
 
 
 @pytest.mark.django_db
