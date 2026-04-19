@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, QuerySet
@@ -8,8 +11,10 @@ from ninja.errors import HttpError
 from ninja import NinjaAPI
 from ninja.responses import Status
 
-from projects.models import Feature, Project, Task
+from projects.models import EventLog, Feature, Project, Task
 from projects.schemas import (
+    EventLogPageResponseSchema,
+    EventLogResponseSchema,
     FeatureCreateSchema,
     FeatureResponseSchema,
     FeatureUpdateSchema,
@@ -73,9 +78,90 @@ def _tasks_queryset() -> QuerySet[Task]:
     return Task.objects.select_related("feature__project", "user")
 
 
+def _serialize_event_log(event_log: EventLog) -> EventLogResponseSchema:
+    return EventLogResponseSchema(
+        id=event_log.id,
+        entity_type=event_log.entity_type,
+        entity_id=event_log.entity_id,
+        event_type=event_log.event_type,
+        event_details=event_log.event_details,
+    )
+
+
+def _build_change_details(
+    instance: Project | Feature | Task,
+    updated_values: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    changes: dict[str, dict[str, Any]] = {}
+    for field_name, new_value in updated_values.items():
+        old_value = getattr(instance, field_name)
+        if old_value != new_value:
+            changes[field_name] = {"old": old_value, "new": new_value}
+    return changes
+
+
+def _create_event_log(
+    *,
+    entity_type: EventLog.EntityType,
+    entity_id: int,
+    event_type: EventLog.EventType,
+    event_details: dict[str, Any] | None = None,
+) -> EventLog:
+    return EventLog.objects.create(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        event_type=event_type,
+        event_details=event_details or {},
+    )
+
+
+def _build_deleted_event_log(entity_type: EventLog.EntityType, entity_id: int) -> EventLog:
+    return EventLog(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        event_type=EventLog.EventType.DELETED,
+        event_details={},
+    )
+
+
 @api.get("/users", response=list[UserResponseSchema])
 def list_users(request: HttpRequest) -> list[User]:
     return list(User.objects.order_by("username", "id"))
+
+
+@api.get("/event-logs", response=EventLogPageResponseSchema)
+def list_event_logs(
+    request: HttpRequest,
+    event_type: str | None = None,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> EventLogPageResponseSchema:
+    if page < 1:
+        raise HttpError(400, "Page must be greater than or equal to 1.")
+    if page_size < 1:
+        raise HttpError(400, "Page size must be greater than or equal to 1.")
+
+    queryset = EventLog.objects.order_by("-id")
+
+    if event_type is not None:
+        queryset = queryset.filter(event_type=event_type)
+    if entity_type is not None:
+        queryset = queryset.filter(entity_type=entity_type)
+    if entity_id is not None:
+        queryset = queryset.filter(entity_id=entity_id)
+
+    total = queryset.count()
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = [_serialize_event_log(event_log) for event_log in queryset[start:end]]
+    return EventLogPageResponseSchema(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @api.get("/projects", response=list[ProjectResponseSchema])
@@ -88,10 +174,17 @@ def create_project(
     request: HttpRequest,
     payload: ProjectCreateSchema,
 ) -> Project:
-    return Project.objects.create(
-        name=payload.name,
-        description=payload.description,
-    )
+    with transaction.atomic():
+        project = Project.objects.create(
+            name=payload.name,
+            description=payload.description,
+        )
+        _create_event_log(
+            entity_type=EventLog.EntityType.PROJECT,
+            entity_id=project.id,
+            event_type=EventLog.EventType.NEW,
+        )
+    return project
 
 
 @api.get("/projects/{project_id}", response=ProjectResponseSchema)
@@ -106,16 +199,43 @@ def update_project(
     payload: ProjectUpdateSchema,
 ) -> Project:
     project = get_object_or_404(Project, id=project_id)
-    project.name = payload.name
-    project.description = payload.description
-    project.save(update_fields=["name", "description", "date_updated"])
+    updated_values = {
+        "name": payload.name,
+        "description": payload.description,
+    }
+    event_details = _build_change_details(project, updated_values)
+    with transaction.atomic():
+        project.name = payload.name
+        project.description = payload.description
+        project.save(update_fields=["name", "description", "date_updated"])
+        _create_event_log(
+            entity_type=EventLog.EntityType.PROJECT,
+            entity_id=project.id,
+            event_type=EventLog.EventType.MODIFIED,
+            event_details=event_details,
+        )
     return project
 
 
 @api.delete("/projects/{project_id}", response={204: None})
 def delete_project(request: HttpRequest, project_id: int) -> Status[None]:
     project = get_object_or_404(Project, id=project_id)
-    project.delete()
+    deleted_project_id = project.id
+    feature_ids = list(
+        Feature.objects.filter(project_id=deleted_project_id).order_by("id").values_list("id", flat=True)
+    )
+    task_ids = list(
+        Task.objects.filter(feature__project_id=deleted_project_id).order_by("id").values_list("id", flat=True)
+    )
+    with transaction.atomic():
+        project.delete()
+        EventLog.objects.bulk_create(
+            [
+                *[_build_deleted_event_log(EventLog.EntityType.TASK, task_id) for task_id in task_ids],
+                *[_build_deleted_event_log(EventLog.EntityType.FEATURE, feature_id) for feature_id in feature_ids],
+                _build_deleted_event_log(EventLog.EntityType.PROJECT, deleted_project_id),
+            ]
+        )
     return Status(204, None)
 
 
@@ -132,12 +252,19 @@ def create_feature(
     project = get_object_or_404(Project, id=payload.project_id)
     parent_feature = _get_parent_feature(payload.parent_feature_id)
     _validate_parent_feature(project=project, parent_feature=parent_feature)
-    return Feature.objects.create(
-        project=project,
-        parent_feature=parent_feature,
-        name=payload.name,
-        description=payload.description,
-    )
+    with transaction.atomic():
+        feature = Feature.objects.create(
+            project=project,
+            parent_feature=parent_feature,
+            name=payload.name,
+            description=payload.description,
+        )
+        _create_event_log(
+            entity_type=EventLog.EntityType.FEATURE,
+            entity_id=feature.id,
+            event_type=EventLog.EventType.NEW,
+        )
+    return feature
 
 
 @api.get("/features/{feature_id}", response=FeatureResponseSchema)
@@ -155,18 +282,53 @@ def update_feature(
     project = get_object_or_404(Project, id=payload.project_id)
     parent_feature = _get_parent_feature(payload.parent_feature_id)
     _validate_parent_feature(project=project, parent_feature=parent_feature, feature_id=feature_id)
-    feature.project = project
-    feature.parent_feature = parent_feature
-    feature.name = payload.name
-    feature.description = payload.description
-    feature.save(update_fields=["project", "parent_feature", "name", "description", "date_updated"])
+    updated_values = {
+        "project_id": project.id,
+        "parent_feature_id": parent_feature.id if parent_feature is not None else None,
+        "name": payload.name,
+        "description": payload.description,
+    }
+    event_details = _build_change_details(feature, updated_values)
+    with transaction.atomic():
+        feature.project = project
+        feature.parent_feature = parent_feature
+        feature.name = payload.name
+        feature.description = payload.description
+        feature.save(update_fields=["project", "parent_feature", "name", "description", "date_updated"])
+        _create_event_log(
+            entity_type=EventLog.EntityType.FEATURE,
+            entity_id=feature.id,
+            event_type=EventLog.EventType.MODIFIED,
+            event_details=event_details,
+        )
     return feature
 
 
 @api.delete("/features/{feature_id}", response={204: None})
 def delete_feature(request: HttpRequest, feature_id: int) -> Status[None]:
     feature = get_object_or_404(Feature, id=feature_id)
-    feature.delete()
+    deleted_feature_id = feature.id
+    task_ids = list(Task.objects.filter(feature_id=deleted_feature_id).order_by("id").values_list("id", flat=True))
+    child_feature_ids = list(
+        Feature.objects.filter(parent_feature_id=deleted_feature_id).order_by("id").values_list("id", flat=True)
+    )
+    with transaction.atomic():
+        feature.delete()
+        EventLog.objects.bulk_create(
+            [
+                *[
+                    EventLog(
+                        entity_type=EventLog.EntityType.FEATURE,
+                        entity_id=child_feature_id,
+                        event_type=EventLog.EventType.MODIFIED,
+                        event_details={"parent_feature_id": {"old": deleted_feature_id, "new": None}},
+                    )
+                    for child_feature_id in child_feature_ids
+                ],
+                *[_build_deleted_event_log(EventLog.EntityType.TASK, task_id) for task_id in task_ids],
+                _build_deleted_event_log(EventLog.EntityType.FEATURE, deleted_feature_id),
+            ]
+        )
     return Status(204, None)
 
 
@@ -220,13 +382,19 @@ def create_task(
 ) -> TaskResponseSchema:
     feature = get_object_or_404(Feature, id=payload.feature_id)
     user = get_object_or_404(User, id=payload.user_id)
-    task = Task.objects.create(
-        feature=feature,
-        user=user,
-        title=payload.title,
-        description=payload.description,
-        status=payload.status,
-    )
+    with transaction.atomic():
+        task = Task.objects.create(
+            feature=feature,
+            user=user,
+            title=payload.title,
+            description=payload.description,
+            status=payload.status,
+        )
+        _create_event_log(
+            entity_type=EventLog.EntityType.TASK,
+            entity_id=task.id,
+            event_type=EventLog.EventType.NEW,
+        )
     return _serialize_task(_tasks_queryset().get(id=task.id))
 
 
@@ -245,17 +413,39 @@ def update_task(
     task = get_object_or_404(Task, id=task_id)
     feature = get_object_or_404(Feature, id=payload.feature_id)
     user = get_object_or_404(User, id=payload.user_id)
-    task.feature = feature
-    task.user = user
-    task.title = payload.title
-    task.description = payload.description
-    task.status = payload.status
-    task.save(update_fields=["feature", "user", "title", "description", "status", "date_updated"])
+    updated_values = {
+        "feature_id": feature.id,
+        "user_id": user.id,
+        "title": payload.title,
+        "description": payload.description,
+        "status": payload.status,
+    }
+    event_details = _build_change_details(task, updated_values)
+    with transaction.atomic():
+        task.feature = feature
+        task.user = user
+        task.title = payload.title
+        task.description = payload.description
+        task.status = payload.status
+        task.save(update_fields=["feature", "user", "title", "description", "status", "date_updated"])
+        _create_event_log(
+            entity_type=EventLog.EntityType.TASK,
+            entity_id=task.id,
+            event_type=EventLog.EventType.MODIFIED,
+            event_details=event_details,
+        )
     return _serialize_task(_tasks_queryset().get(id=task.id))
 
 
 @api.delete("/tasks/{task_id}", response={204: None})
 def delete_task(request: HttpRequest, task_id: int) -> Status[None]:
     task = get_object_or_404(Task, id=task_id)
-    task.delete()
+    deleted_task_id = task.id
+    with transaction.atomic():
+        task.delete()
+        _create_event_log(
+            entity_type=EventLog.EntityType.TASK,
+            entity_id=deleted_task_id,
+            event_type=EventLog.EventType.DELETED,
+        )
     return Status(204, None)

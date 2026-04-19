@@ -95,6 +95,21 @@ class TaskResponseSchema(Schema):
     date_updated: datetime
 
 
+class EventLogResponseSchema(Schema):
+    id: int
+    entity_type: str
+    entity_id: int
+    event_type: str
+    event_details: dict[str, object]
+
+
+class EventLogPageResponseSchema(Schema):
+    items: list[EventLogResponseSchema]
+    total: int
+    page: int
+    page_size: int
+
+
 class UserResponseSchema(Schema):
     id: int
     username: str

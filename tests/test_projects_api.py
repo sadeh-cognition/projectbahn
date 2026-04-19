@@ -6,7 +6,7 @@ import pytest
 from model_bakery import baker
 
 from projects.api import api
-from projects.models import Project
+from projects.models import EventLog, Feature, Project, Task
 from projects.schemas import (
     ProjectCreateSchema,
     ProjectResponseSchema,
@@ -35,6 +35,12 @@ def test_create_project() -> None:
     assert body.name == payload.name
     assert body.description == payload.description
     assert Project.objects.filter(id=body.id).exists()
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.PROJECT,
+        entity_id=body.id,
+        event_type=EventLog.EventType.NEW,
+    )
+    assert event_log.event_details == {}
 
 
 @pytest.mark.django_db
@@ -73,11 +79,45 @@ def test_update_project(project: Project) -> None:
     assert body.name == payload.name
     assert project.name == payload.name
     assert project.description == payload.description
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.PROJECT,
+        entity_id=project.id,
+        event_type=EventLog.EventType.MODIFIED,
+    )
+    assert event_log.event_details == {
+        "name": {"old": "Existing Project", "new": payload.name},
+        "description": {"old": "Initial description", "new": payload.description},
+    }
 
 
 @pytest.mark.django_db
 def test_delete_project(project: Project) -> None:
+    feature = baker.make(
+        Feature,
+        project=project,
+        parent_feature=None,
+        name="Project feature",
+        description="Feature removed with the project",
+    )
+    task = baker.make(
+        Task,
+        feature=feature,
+        title="Project task",
+        description="Task removed with the project",
+        status="Todo",
+    )
+
     response = client.delete(f"/projects/{project.id}")
 
     assert response.status_code == 204
     assert not Project.objects.filter(id=project.id).exists()
+    assert not Feature.objects.filter(id=feature.id).exists()
+    assert not Task.objects.filter(id=task.id).exists()
+    logged_events = list(
+        EventLog.objects.order_by("id").values_list("entity_type", "entity_id", "event_type")
+    )
+    assert logged_events == [
+        (EventLog.EntityType.TASK, task.id, EventLog.EventType.DELETED),
+        (EventLog.EntityType.FEATURE, feature.id, EventLog.EventType.DELETED),
+        (EventLog.EntityType.PROJECT, project.id, EventLog.EventType.DELETED),
+    ]

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from projects.models import Feature, Project, Task
+from projects.models import EventLog, Feature, Project, Task
 
 
 @admin.register(Project)
@@ -18,6 +18,13 @@ class FeatureAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("id", "feature", "user", "date_created", "date_updated")
-    list_filter = ("feature", "user")
-    search_fields = ("status",)
+    list_display = ("id", "title", "feature", "user", "status", "date_created", "date_updated")
+    list_filter = ("feature", "user", "status")
+    search_fields = ("title", "description", "status")
+
+
+@admin.register(EventLog)
+class EventLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "entity_type", "entity_id", "event_type")
+    list_filter = ("entity_type", "event_type")
+    search_fields = ("entity_type", "event_type")

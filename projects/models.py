@@ -43,3 +43,23 @@ class Task(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+
+class EventLog(models.Model):
+    class EntityType(models.TextChoices):
+        PROJECT = "Project", "Project"
+        FEATURE = "Feature", "Feature"
+        TASK = "Task", "Task"
+
+    class EventType(models.TextChoices):
+        NEW = "new", "new"
+        MODIFIED = "modified", "modified"
+        DELETED = "deleted", "deleted"
+
+    entity_type = models.CharField(max_length=32, choices=EntityType.choices)
+    entity_id = models.PositiveBigIntegerField()
+    event_type = models.CharField(max_length=32, choices=EventType.choices)
+    event_details = models.JSONField(default=dict)
+
+    def __str__(self) -> str:
+        return f"{self.entity_type}:{self.entity_id}:{self.event_type}"

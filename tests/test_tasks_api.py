@@ -8,7 +8,7 @@ import pytest
 from model_bakery import baker
 
 from projects.api import api
-from projects.models import Feature, Project, Task
+from projects.models import EventLog, Feature, Project, Task
 from projects.schemas import TaskCreateSchema, TaskResponseSchema, TaskUpdateSchema
 
 client = TestClient(api)
@@ -77,6 +77,12 @@ def test_create_task(feature: Feature, user) -> None:
     assert body.description == payload.description
     assert body.status == payload.status
     assert Task.objects.filter(id=body.id).exists()
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.TASK,
+        entity_id=body.id,
+        event_type=EventLog.EventType.NEW,
+    )
+    assert event_log.event_details == {}
 
 
 @pytest.mark.django_db
@@ -106,6 +112,7 @@ def test_get_task(task: Task) -> None:
 
 @pytest.mark.django_db
 def test_update_task(task: Task, feature: Feature, other_user) -> None:
+    original_user_id = task.user_id
     payload = TaskUpdateSchema(
         feature_id=feature.id,
         user_id=other_user.id,
@@ -127,6 +134,20 @@ def test_update_task(task: Task, feature: Feature, other_user) -> None:
     assert task.title == payload.title
     assert task.description == payload.description
     assert task.status == payload.status
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.TASK,
+        entity_id=task.id,
+        event_type=EventLog.EventType.MODIFIED,
+    )
+    assert event_log.event_details == {
+        "user_id": {"old": original_user_id, "new": other_user.id},
+        "title": {"old": "Review API contract", "new": payload.title},
+        "description": {
+            "old": "Validate the payload shape before frontend implementation.",
+            "new": payload.description,
+        },
+        "status": {"old": "Waiting on backend API review.", "new": payload.status},
+    }
 
 
 @pytest.mark.django_db
@@ -135,6 +156,12 @@ def test_delete_task(task: Task) -> None:
 
     assert response.status_code == 204
     assert not Task.objects.filter(id=task.id).exists()
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.TASK,
+        entity_id=task.id,
+        event_type=EventLog.EventType.DELETED,
+    )
+    assert event_log.event_details == {}
 
 
 @pytest.mark.django_db

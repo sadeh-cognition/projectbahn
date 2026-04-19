@@ -6,7 +6,7 @@ import pytest
 from model_bakery import baker
 
 from projects.api import api
-from projects.models import Feature, Project
+from projects.models import EventLog, Feature, Project, Task
 from projects.schemas import (
     FeatureCreateSchema,
     FeatureResponseSchema,
@@ -65,6 +65,12 @@ def test_create_feature(project: Project, parent_feature: Feature) -> None:
     assert body.parent_feature_id == parent_feature.id
     assert body.name == payload.name
     assert Feature.objects.filter(id=body.id).exists()
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.FEATURE,
+        entity_id=body.id,
+        event_type=EventLog.EventType.NEW,
+    )
+    assert event_log.event_details == {}
 
 
 @pytest.mark.django_db
@@ -109,6 +115,8 @@ def test_get_feature(feature: Feature) -> None:
 
 @pytest.mark.django_db
 def test_update_feature(feature: Feature, other_project: Project) -> None:
+    original_project_id = feature.project_id
+    original_parent_feature_id = feature.parent_feature_id
     payload = FeatureUpdateSchema(
         project_id=other_project.id,
         parent_feature_id=None,
@@ -125,6 +133,20 @@ def test_update_feature(feature: Feature, other_project: Project) -> None:
     assert body.parent_feature_id is None
     assert feature.project_id == other_project.id
     assert feature.name == payload.name
+    event_log = EventLog.objects.get(
+        entity_type=EventLog.EntityType.FEATURE,
+        entity_id=feature.id,
+        event_type=EventLog.EventType.MODIFIED,
+    )
+    assert event_log.event_details == {
+        "project_id": {"old": original_project_id, "new": other_project.id},
+        "parent_feature_id": {"old": original_parent_feature_id, "new": None},
+        "name": {"old": "OAuth Login", "new": payload.name},
+        "description": {
+            "old": "Allow sign in with external providers",
+            "new": payload.description,
+        },
+    }
 
 
 @pytest.mark.django_db
@@ -148,10 +170,41 @@ def test_update_feature_accepts_empty_parent_feature_id(feature: Feature) -> Non
 
 @pytest.mark.django_db
 def test_delete_feature(feature: Feature) -> None:
+    task = baker.make(
+        Task,
+        feature=feature,
+        title="Feature task",
+        description="Task removed with the feature",
+        status="Todo",
+    )
+    child_feature = baker.make(
+        Feature,
+        project=feature.project,
+        parent_feature=feature,
+        name="Nested child",
+        description="Becomes a root feature",
+    )
+
     response = client.delete(f"/features/{feature.id}")
 
     assert response.status_code == 204
     assert not Feature.objects.filter(id=feature.id).exists()
+    assert not Task.objects.filter(id=task.id).exists()
+    child_feature.refresh_from_db()
+    assert child_feature.parent_feature_id is None
+    logged_events = list(
+        EventLog.objects.order_by("id").values_list("entity_type", "entity_id", "event_type", "event_details")
+    )
+    assert logged_events == [
+        (
+            EventLog.EntityType.FEATURE,
+            child_feature.id,
+            EventLog.EventType.MODIFIED,
+            {"parent_feature_id": {"old": feature.id, "new": None}},
+        ),
+        (EventLog.EntityType.TASK, task.id, EventLog.EventType.DELETED, {}),
+        (EventLog.EntityType.FEATURE, feature.id, EventLog.EventType.DELETED, {}),
+    ]
 
 
 @pytest.mark.django_db
