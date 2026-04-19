@@ -6,7 +6,7 @@ import logging
 
 from django.http import HttpRequest, HttpResponse
 
-from projects.rich_logging import format_payload_for_log
+from projects.logging_utils import format_payload_for_log
 
 logger = logging.getLogger("projects.http_server")
 

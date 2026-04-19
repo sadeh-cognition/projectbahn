@@ -47,7 +47,6 @@ Note: the port number is 8001
 
 For front-end use HTMX and Tailwind CSS.
 The front-end should be a fullstack Django app.
-The TUI user interface should use the python `rich` package.
 The backend is a Django HTTP API implemented using `django-ninja`.
 When interacting with the backend, always use the HTTP API.
 Do not use the database directly.
@@ -68,8 +67,8 @@ Use type hints even when writing Django code. Use this package <https://github.c
 
 ## ui-backend-interactions.md
 
-All TUI interactions with data should be done via the backend HTTP API.
-All business logic should be extracted into functions which can be used without the TUI.
+All frontend interactions with data should be done via the backend HTTP API.
+All business logic should be extracted into functions which can be used without the frontend.
 When calling the backend API use the ninja schemas that define the endpoints incoming request type. Also, use the response schema to parse the response from the HTTP API.
 
 ## vector-db.md
