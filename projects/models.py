@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib.auth.hashers import make_password
 from django.conf import settings
 from django.db import models
 
@@ -12,6 +13,25 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class ProjectLLMConfig(models.Model):
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name="llm_config")
+    provider = models.CharField(max_length=255, blank=True)
+    llm_name = models.CharField(max_length=255, blank=True)
+    api_key_hash = models.CharField(max_length=255, blank=True)
+    date_created = models.DateTimeField(auto_now_add=True)
+    date_updated = models.DateTimeField(auto_now=True)
+
+    def set_api_key(self, api_key: str) -> None:
+        self.api_key_hash = make_password(api_key)
+
+    @property
+    def api_key_configured(self) -> bool:
+        return bool(self.api_key_hash)
+
+    def __str__(self) -> str:
+        return f"LLM config for {self.project}"
 
 
 class Feature(models.Model):

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from projects.models import EventLog, Feature, Project, Task
+from projects.models import EventLog, Feature, Project, ProjectLLMConfig, Task
 
 
 @admin.register(Project)
@@ -14,6 +14,12 @@ class FeatureAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "project", "parent_feature", "date_created", "date_updated")
     list_filter = ("project",)
     search_fields = ("name", "description")
+
+
+@admin.register(ProjectLLMConfig)
+class ProjectLLMConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "project", "provider", "llm_name", "date_created", "date_updated")
+    search_fields = ("project__name", "provider", "llm_name")
 
 
 @admin.register(Task)

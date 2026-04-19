@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
@@ -11,7 +12,7 @@ from ninja.errors import HttpError
 from ninja import NinjaAPI
 from ninja.responses import Status
 
-from projects.models import EventLog, Feature, Project, Task
+from projects.models import EventLog, Feature, Project, ProjectLLMConfig, Task
 from projects.schemas import (
     EventLogPageResponseSchema,
     EventLogResponseSchema,
@@ -19,6 +20,8 @@ from projects.schemas import (
     FeatureResponseSchema,
     FeatureUpdateSchema,
     ProjectCreateSchema,
+    ProjectLLMConfigResponseSchema,
+    ProjectLLMConfigUpdateSchema,
     ProjectResponseSchema,
     ProjectUpdateSchema,
     TaskCreateSchema,
@@ -87,6 +90,29 @@ def _serialize_project(project: Project) -> ProjectResponseSchema:
         description=project.description,
         date_created=project.date_created,
         date_updated=project.date_updated,
+    )
+
+
+def _serialize_project_llm_config(project: Project) -> ProjectLLMConfigResponseSchema:
+    try:
+        config = project.llm_config
+    except ObjectDoesNotExist:
+        return ProjectLLMConfigResponseSchema(
+            project_id=project.id,
+            provider="",
+            llm_name="",
+            api_key_configured=False,
+            date_created=project.date_created,
+            date_updated=project.date_updated,
+        )
+
+    return ProjectLLMConfigResponseSchema(
+        project_id=project.id,
+        provider=config.provider,
+        llm_name=config.llm_name,
+        api_key_configured=config.api_key_configured,
+        date_created=config.date_created,
+        date_updated=config.date_updated,
     )
 
 
@@ -217,6 +243,12 @@ def get_project(request: HttpRequest, project_id: int) -> ProjectResponseSchema:
     return _serialize_project(get_object_or_404(Project, id=project_id))
 
 
+@api.get("/projects/{project_id}/llm-config", response=ProjectLLMConfigResponseSchema)
+def get_project_llm_config(request: HttpRequest, project_id: int) -> ProjectLLMConfigResponseSchema:
+    project = get_object_or_404(Project, id=project_id)
+    return _serialize_project_llm_config(project)
+
+
 @api.put("/projects/{project_id}", response=ProjectResponseSchema)
 def update_project(
     request: HttpRequest,
@@ -240,6 +272,25 @@ def update_project(
             event_details=event_details,
         )
     return _serialize_project(project)
+
+
+@api.put("/projects/{project_id}/llm-config", response=ProjectLLMConfigResponseSchema)
+def update_project_llm_config(
+    request: HttpRequest,
+    project_id: int,
+    payload: ProjectLLMConfigUpdateSchema,
+) -> ProjectLLMConfigResponseSchema:
+    project = get_object_or_404(Project, id=project_id)
+    with transaction.atomic():
+        config, _ = ProjectLLMConfig.objects.get_or_create(project=project)
+        config.provider = payload.provider
+        config.llm_name = payload.llm_name
+        if payload.api_key:
+            config.set_api_key(payload.api_key)
+            config.save(update_fields=["provider", "llm_name", "api_key_hash", "date_updated"])
+        else:
+            config.save(update_fields=["provider", "llm_name", "date_updated"])
+    return _serialize_project_llm_config(project)
 
 
 @api.delete("/projects/{project_id}", response={204: None})

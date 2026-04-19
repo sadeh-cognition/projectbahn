@@ -8,7 +8,7 @@ from django.test import Client
 import pytest
 from model_bakery import baker
 
-from projects.models import Feature, Project, Task
+from projects.models import Feature, Project, ProjectLLMConfig, Task
 
 User = get_user_model()
 
@@ -115,8 +115,33 @@ def test_workspace_can_render_project_settings_tab() -> None:
     assert response.status_code == 200
     content = response.content.decode("utf-8")
     assert "Project settings" in content
+    assert "LLM Config" in content
+    assert "Save LLM config" in content
+    assert 'hx-put="/api/projects/' + str(project.id) + '/llm-config"' in content
     assert "Save project" in content
     assert "Create top-level or nested features" not in content
+
+
+@pytest.mark.django_db
+def test_workspace_project_settings_tab_renders_existing_llm_config() -> None:
+    client = Client()
+    project = baker.make(Project, name="Platform", description="Core platform")
+    config = ProjectLLMConfig.objects.create(
+        project=project,
+        provider="groq",
+        llm_name="llama-3.1-8b-instant",
+    )
+    config.set_api_key("secret-value")
+    config.save(update_fields=["api_key_hash", "date_updated"])
+
+    response = client.get("/workspace/", {"project_id": project.id, "tab": "project_settings"})
+
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert 'value="groq"' in content
+    assert 'value="llama-3.1-8b-instant"' in content
+    assert "API key configured" in content
+    assert "Leave blank to keep current key" in content
 
 
 @pytest.mark.django_db

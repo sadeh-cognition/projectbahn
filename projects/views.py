@@ -102,6 +102,7 @@ def _build_workspace_context(
     filters = _task_filters_from_request(request)
     tasks = _task_rows(project_id=selected_project.id, filters=filters)
     users = list(User.objects.order_by("username", "id"))
+    llm_config = getattr(selected_project, "llm_config", None)
 
     return {
         "projects": projects,
@@ -111,6 +112,7 @@ def _build_workspace_context(
         "feature_options": feature_options,
         "feature_rows": feature_rows,
         "users": users,
+        "llm_config": llm_config,
         "tasks": tasks,
         "task_filters": filters,
         "task_sort_options": TASK_SORT_OPTIONS,

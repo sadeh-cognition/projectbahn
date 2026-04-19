@@ -7,6 +7,7 @@ from projects.frontend.services import (
     features_for_project,
     flatten_feature_tree,
 )
+from projects.models import EventLog
 from projects.schemas import FeatureResponseSchema
 
 
@@ -20,6 +21,7 @@ def make_feature(
     timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     return FeatureResponseSchema(
         id=feature_id,
+        entity_type=EventLog.EntityType.FEATURE,
         project_id=project_id,
         parent_feature_id=parent_feature_id,
         name=name,
