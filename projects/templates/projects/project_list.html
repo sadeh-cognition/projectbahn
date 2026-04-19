@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Projbahn Projects</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-json-enc@2.0.0/json-enc.js"></script>
+    <script>
+        window.projbahn = {
+            parseResponse(xhr) {
+                if (!xhr.responseText) {
+                    return null;
+                }
+                try {
+                    return JSON.parse(xhr.responseText);
+                } catch {
+                    return null;
+                }
+            },
+            escapeHtml(value) {
+                return String(value)
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#39;");
+            },
+            showFeedback(kind, message) {
+                const container = document.getElementById("api-feedback");
+                if (!container) {
+                    return;
+                }
+                if (!message) {
+                    container.innerHTML = "";
+                    return;
+                }
+                const styles = kind === "error"
+                    ? "border-rose-500/40 bg-rose-500/10 text-rose-100"
+                    : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100";
+                container.innerHTML = `<div class="rounded-2xl border px-4 py-3 text-sm ${styles}">${this.escapeHtml(message)}</div>`;
+            },
+            readError(xhr) {
+                const payload = this.parseResponse(xhr);
+                if (payload && typeof payload.detail === "string") {
+                    return payload.detail;
+                }
+                return xhr.responseText || `Request failed with status ${xhr.status}.`;
+            },
+            handleResult(event, onSuccess) {
+                if (!event.detail.successful) {
+                    this.showFeedback("error", this.readError(event.detail.xhr));
+                    return;
+                }
+                this.showFeedback("success", "");
+                onSuccess();
+            },
+            goToDashboard(params) {
+                const query = new URLSearchParams();
+                for (const [key, value] of Object.entries(params)) {
+                    if (value !== null && value !== undefined && value !== "") {
+                        query.set(key, value);
+                    }
+                }
+                const suffix = query.toString();
+                window.location = suffix ? `/?${suffix}` : "/";
+            },
+            handleCreateProject(event) {
+                this.handleResult(event, () => {
+                    const project = this.parseResponse(event.detail.xhr);
+                    if (project && project.id) {
+                        this.goToDashboard({ project_id: project.id, tab: "tasks" });
+                    }
+                });
+            },
+        };
+    </script>
+</head>
+<body class="min-h-screen bg-stone-950 text-stone-100">
+    <main class="mx-auto max-w-7xl px-4 py-6 lg:px-6">
+        <div class="flex flex-col gap-6">
+            <section class="rounded-3xl border border-stone-800 bg-stone-900/90 p-6 shadow-2xl">
+                <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div class="max-w-2xl">
+                        <p class="text-xs uppercase tracking-[0.3em] text-amber-400">Projbahn</p>
+                        <h1 class="mt-2 text-3xl font-semibold text-stone-50">Projects</h1>
+                        <p class="mt-2 text-sm text-stone-400">Create a project or open an existing workspace.</p>
+                    </div>
+                    <a href="/" class="inline-flex items-center justify-center rounded-xl border border-stone-700 px-4 py-2 text-sm font-semibold text-stone-200 hover:border-stone-600 hover:text-stone-50">
+                        Back to workspace
+                    </a>
+                </div>
+            </section>
+
+            <div id="api-feedback"></div>
+
+            {% if messages %}
+                <div class="space-y-2">
+                    {% for message in messages %}
+                        <div class="rounded-2xl border px-4 py-3 text-sm {% if message.tags == 'error' %}border-rose-500/40 bg-rose-500/10 text-rose-100{% else %}border-emerald-500/40 bg-emerald-500/10 text-emerald-100{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div class="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(20rem,0.9fr)]">
+                <section class="rounded-3xl border border-stone-800 bg-stone-900/90 p-6 shadow-2xl">
+                    <div class="flex items-center justify-between gap-4 border-b border-stone-800 pb-4">
+                        <div>
+                            <h2 class="text-xl font-semibold text-stone-50">Project list</h2>
+                            <p class="mt-1 text-sm text-stone-400">Open a project workspace from here.</p>
+                        </div>
+                        <div class="rounded-2xl border border-stone-800 bg-stone-950/70 px-4 py-3 text-right">
+                            <div class="text-xs uppercase tracking-wide text-stone-500">Total</div>
+                            <div class="mt-1 text-2xl font-semibold text-stone-50">{{ projects|length }}</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 space-y-3">
+                        {% for project in projects %}
+                            <a
+                                href="/?project_id={{ project.id }}&tab=tasks"
+                                class="block rounded-2xl border border-stone-800 bg-stone-950/60 px-4 py-4 transition hover:border-stone-700 hover:bg-stone-900"
+                            >
+                                <div class="flex items-start justify-between gap-4">
+                                    <div>
+                                        <div class="text-sm font-semibold text-stone-50">{{ project.name }}</div>
+                                        <div class="mt-1 text-sm text-stone-400">{{ project.description|default:"No description yet." }}</div>
+                                    </div>
+                                    <span class="rounded-full border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide text-stone-300">Open</span>
+                                </div>
+                            </a>
+                        {% empty %}
+                            <div class="rounded-2xl border border-dashed border-stone-700 px-4 py-10 text-sm text-stone-400">
+                                No projects yet. Create the first one from the form.
+                            </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="rounded-3xl border border-stone-800 bg-stone-900/90 p-6 shadow-2xl">
+                    <div class="mb-4">
+                        <h2 class="text-xl font-semibold text-stone-50">New project</h2>
+                        <p class="mt-1 text-sm text-stone-400">Create a project, then continue directly into its workspace.</p>
+                    </div>
+                    <form
+                        method="post"
+                        hx-ext="json-enc"
+                        hx-post="/api/projects"
+                        hx-swap="none"
+                        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                        hx-on::after-request="window.projbahn.handleCreateProject(event)"
+                        class="space-y-3"
+                    >
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400" for="new-project-name">Project name</label>
+                            <input id="new-project-name" name="name" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none ring-0 placeholder:text-stone-500" placeholder="Platform overhaul">
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400" for="new-project-description">Description</label>
+                            <textarea id="new-project-description" name="description" rows="4" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none placeholder:text-stone-500" placeholder="What this project is for"></textarea>
+                        </div>
+                        <button type="submit" class="w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950">Create project</button>
+                    </form>
+                </section>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

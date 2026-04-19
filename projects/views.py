@@ -48,6 +48,13 @@ def dashboard(request: HttpRequest) -> HttpResponse:
     return render(request, "projects/dashboard.html", workspace_context)
 
 
+def project_list(request: HttpRequest) -> HttpResponse:
+    context = {
+        "projects": list(Project.objects.order_by("id")),
+    }
+    return render(request, "projects/project_list.html", context)
+
+
 def workspace(request: HttpRequest) -> HttpResponse:
     context = _build_workspace_context(
         request=request,

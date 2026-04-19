@@ -14,7 +14,7 @@ User = get_user_model()
 
 
 @pytest.mark.django_db
-def test_dashboard_shows_project_list_before_selection() -> None:
+def test_dashboard_shows_projects_entry_point_before_selection() -> None:
     client = Client()
     baker.make(Project, name="Platform", description="Core platform")
 
@@ -22,9 +22,26 @@ def test_dashboard_shows_project_list_before_selection() -> None:
 
     assert response.status_code == 200
     content = response.content.decode("utf-8")
-    assert "Platform" in content
+    assert "View projects" in content
     assert "Select a project" in content
     assert "Project task table" not in content
+    assert "Create project" not in content
+
+
+@pytest.mark.django_db
+def test_project_list_page_shows_projects_and_create_form() -> None:
+    client = Client()
+    project = baker.make(Project, name="Platform", description="Core platform")
+
+    response = client.get("/projects/")
+
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert "Project list" in content
+    assert "New project" in content
+    assert project.name in content
+    assert f"/?project_id={project.id}&tab=tasks" in content
+    assert 'hx-post="/api/projects"' in content
 
 
 @pytest.mark.django_db
@@ -62,13 +79,14 @@ def test_dashboard_renders_project_tasks_tab_by_default() -> None:
 def test_workspace_can_render_features_tab() -> None:
     client = Client()
     project = baker.make(Project, name="Platform", description="Core platform")
-    baker.make(
+    feature = baker.make(
         Feature,
         project=project,
         parent_feature=None,
         name="Auth",
         description="Authentication feature",
     )
+    user = baker.make(User, username="alex")
 
     response = client.get("/workspace/", {"project_id": project.id, "tab": "features"})
 
@@ -81,6 +99,10 @@ def test_workspace_can_render_features_tab() -> None:
     assert "Project settings" not in content
     assert "Save project" not in content
     assert "Project task table" not in content
+    assert f'create-task-for-feature-{feature.id}' in content
+    assert 'name="feature_id" value="' + str(feature.id) + '"' in content
+    assert f"Create task for {feature.name}" in content
+    assert user.username in content
 
 
 @pytest.mark.django_db

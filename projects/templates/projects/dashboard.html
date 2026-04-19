@@ -134,11 +134,17 @@
             },
             handleTaskMutation(event, projectId) {
                 this.handleResult(event, () => {
+                    const currentDialog = event.target.closest("dialog");
+                    if (currentDialog && currentDialog.id) {
+                        this.closeDialog(currentDialog.id);
+                    }
                     this.closeDialog("create-task-dialog");
+                    const nextTab = event.target.dataset.refreshTab || "tasks";
                     this.refreshWorkspace({
                         project_id: projectId,
-                        tab: "tasks",
-                        edit_task_id: null,
+                        tab: nextTab,
+                        edit_task_id: nextTab === "tasks" ? null : undefined,
+                        edit_feature_id: nextTab === "features" ? null : undefined,
                     });
                 });
             },
@@ -146,54 +152,27 @@
     </script>
 </head>
 <body class="min-h-screen bg-stone-950 text-stone-100">
-    <div class="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row lg:px-6">
-        <aside class="w-full shrink-0 rounded-3xl border border-stone-800 bg-stone-900/90 p-5 shadow-2xl lg:w-80">
-            <div class="mb-6">
-                <p class="text-xs uppercase tracking-[0.3em] text-amber-400">Projbahn</p>
-                <h1 class="mt-2 text-3xl font-semibold text-stone-50">Projects</h1>
-                <p class="mt-2 text-sm text-stone-400">Manage projects, nested features, and delivery work from one page.</p>
-            </div>
-
-            <form
-                method="post"
-                hx-ext="json-enc"
-                hx-post="/api/projects"
-                hx-swap="none"
-                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-                hx-on::after-request="window.projbahn.handleCreateProject(event)"
-                class="space-y-3 rounded-2xl border border-stone-800 bg-stone-950/70 p-4"
-            >
-                <div>
-                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400" for="new-project-name">Project name</label>
-                    <input id="new-project-name" name="name" required class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none ring-0 placeholder:text-stone-500" placeholder="Platform overhaul">
+    <div class="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 lg:px-6">
+        <header class="rounded-3xl border border-stone-800 bg-stone-900/90 p-6 shadow-2xl">
+            <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div class="max-w-3xl">
+                    <p class="text-xs uppercase tracking-[0.3em] text-amber-400">Projbahn</p>
+                    <h1 class="mt-2 text-3xl font-semibold text-stone-50">Workspace</h1>
+                    <p class="mt-2 text-sm text-stone-400">Manage projects, nested features, and delivery work without a persistent projects rail.</p>
                 </div>
-                <div>
-                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400" for="new-project-description">Description</label>
-                    <textarea id="new-project-description" name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none placeholder:text-stone-500" placeholder="What this project is for"></textarea>
+                <div class="flex flex-wrap gap-3">
+                    <a href="{% url 'project-list' %}" class="inline-flex items-center justify-center rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950">
+                        View projects
+                    </a>
+                    {% if selected_project %}
+                        <div class="rounded-2xl border border-stone-800 bg-stone-950/70 px-4 py-3">
+                            <div class="text-xs uppercase tracking-wide text-stone-500">Current project</div>
+                            <div class="mt-1 text-sm font-semibold text-stone-50">{{ selected_project.name }}</div>
+                        </div>
+                    {% endif %}
                 </div>
-                <button type="submit" class="w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-stone-950">Create project</button>
-            </form>
-
-            <div class="mt-6 space-y-2">
-                {% for project in projects %}
-                    <button
-                        type="button"
-                        hx-get="{% url 'workspace' %}?project_id={{ project.id }}&tab=tasks"
-                        hx-target="#workspace-panel"
-                        hx-swap="innerHTML"
-                        hx-push-url="/?project_id={{ project.id }}&tab=tasks"
-                        class="w-full rounded-2xl border px-4 py-3 text-left transition {% if selected_project and selected_project.id == project.id %}border-amber-400 bg-amber-400/10 text-stone-50{% else %}border-stone-800 bg-stone-950/60 text-stone-300 hover:border-stone-700 hover:bg-stone-900{% endif %}"
-                    >
-                        <div class="text-sm font-semibold">{{ project.name }}</div>
-                        <div class="mt-1 line-clamp-2 text-xs text-stone-400">{{ project.description|default:"No description yet." }}</div>
-                    </button>
-                {% empty %}
-                    <div class="rounded-2xl border border-dashed border-stone-700 px-4 py-6 text-sm text-stone-400">
-                        Create your first project to open the workspace.
-                    </div>
-                {% endfor %}
             </div>
-        </aside>
+        </header>
 
         <main class="min-w-0 flex-1">
             <div id="api-feedback" class="mb-4"></div>
