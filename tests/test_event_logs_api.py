@@ -18,7 +18,7 @@ def test_list_event_logs_supports_pagination() -> None:
         EventLog,
         entity_type=EventLog.EntityType.PROJECT,
         entity_id=1,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
         event_details={"name": "Alpha"},
     )
     second_log = baker.make(
@@ -61,7 +61,7 @@ def test_list_event_logs_filters_by_event_and_entity_fields() -> None:
         EventLog,
         entity_type=EventLog.EntityType.TASK,
         entity_id=42,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
         event_details={},
     )
     baker.make(

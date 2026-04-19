@@ -68,7 +68,7 @@ def test_create_feature(project: Project, parent_feature: Feature) -> None:
     event_log = EventLog.objects.get(
         entity_type=EventLog.EntityType.FEATURE,
         entity_id=body.id,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
     )
     assert event_log.event_details == {}
 

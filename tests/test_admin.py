@@ -45,7 +45,7 @@ def admin_records() -> None:
         EventLog,
         entity_type=EventLog.EntityType.TASK,
         entity_id=task.id,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
         event_details={"title": task.title},
     )
 

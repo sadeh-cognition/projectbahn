@@ -182,7 +182,7 @@ def create_project(
         _create_event_log(
             entity_type=EventLog.EntityType.PROJECT,
             entity_id=project.id,
-            event_type=EventLog.EventType.NEW,
+            event_type=EventLog.EventType.CREATED,
         )
     return project
 
@@ -262,7 +262,7 @@ def create_feature(
         _create_event_log(
             entity_type=EventLog.EntityType.FEATURE,
             entity_id=feature.id,
-            event_type=EventLog.EventType.NEW,
+            event_type=EventLog.EventType.CREATED,
         )
     return feature
 
@@ -393,7 +393,7 @@ def create_task(
         _create_event_log(
             entity_type=EventLog.EntityType.TASK,
             entity_id=task.id,
-            event_type=EventLog.EventType.NEW,
+            event_type=EventLog.EventType.CREATED,
         )
     return _serialize_task(_tasks_queryset().get(id=task.id))
 

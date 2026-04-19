@@ -20,8 +20,8 @@ class EventLogBackfillPlan:
 
 
 def _build_backfill_plans() -> list[EventLogBackfillPlan]:
-    existing_new_event_keys = set(
-        EventLog.objects.filter(event_type=EventLog.EventType.NEW).values_list("entity_type", "entity_id")
+    existing_created_event_keys = set(
+        EventLog.objects.filter(event_type=EventLog.EventType.CREATED).values_list("entity_type", "entity_id")
     )
 
     plans: list[EventLogBackfillPlan] = []
@@ -31,7 +31,7 @@ def _build_backfill_plans() -> list[EventLogBackfillPlan]:
         (EventLog.EntityType.TASK, Task.objects.order_by("date_created", "id").values_list("id", flat=True)),
     )
     for entity_type, entity_ids in entity_definitions:
-        missing_ids = [entity_id for entity_id in entity_ids if (entity_type, entity_id) not in existing_new_event_keys]
+        missing_ids = [entity_id for entity_id in entity_ids if (entity_type, entity_id) not in existing_created_event_keys]
         plans.append(EventLogBackfillPlan(entity_type=entity_type, entity_ids=missing_ids))
     return plans
 
@@ -49,7 +49,7 @@ def backfill_event_logs(*, dry_run: bool = False) -> EventLogBackfillResult:
         EventLog(
             entity_type=plan.entity_type,
             entity_id=entity_id,
-            event_type=EventLog.EventType.NEW,
+            event_type=EventLog.EventType.CREATED,
             event_details={},
         )
         for plan in plans

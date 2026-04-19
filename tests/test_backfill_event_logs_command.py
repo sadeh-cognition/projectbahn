@@ -9,7 +9,7 @@ from projects.models import EventLog, Feature, Project, Task
 
 
 @pytest.mark.django_db
-def test_backfill_event_logs_creates_missing_new_events(django_user_model, capsys) -> None:
+def test_backfill_event_logs_creates_missing_created_events(django_user_model, capsys) -> None:
     user = baker.make(django_user_model)
     project = baker.make(Project)
     feature = baker.make(Feature, project=project, parent_feature=None)
@@ -18,7 +18,7 @@ def test_backfill_event_logs_creates_missing_new_events(django_user_model, capsy
         EventLog,
         entity_type=EventLog.EntityType.PROJECT,
         entity_id=project.id,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
         event_details={},
     )
 
@@ -33,23 +33,23 @@ def test_backfill_event_logs_creates_missing_new_events(django_user_model, capsy
         (
             EventLog.EntityType.PROJECT,
             project.id,
-            EventLog.EventType.NEW,
+            EventLog.EventType.CREATED,
             {},
         ),
         (
             EventLog.EntityType.FEATURE,
             feature.id,
-            EventLog.EventType.NEW,
+            EventLog.EventType.CREATED,
             {},
         ),
         (
             EventLog.EntityType.TASK,
             task.id,
-            EventLog.EventType.NEW,
+            EventLog.EventType.CREATED,
             {},
         ),
     ]
-    assert EventLog.objects.get(id=existing_project_event.id).event_type == EventLog.EventType.NEW
+    assert EventLog.objects.get(id=existing_project_event.id).event_type == EventLog.EventType.CREATED
 
 
 @pytest.mark.django_db

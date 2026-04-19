@@ -80,7 +80,7 @@ def test_create_task(feature: Feature, user) -> None:
     event_log = EventLog.objects.get(
         entity_type=EventLog.EntityType.TASK,
         entity_id=body.id,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
     )
     assert event_log.event_details == {}
 

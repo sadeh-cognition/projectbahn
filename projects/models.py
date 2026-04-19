@@ -52,7 +52,7 @@ class EventLog(models.Model):
         TASK = "Task", "Task"
 
     class EventType(models.TextChoices):
-        NEW = "new", "new"
+        CREATED = "created", "created"
         MODIFIED = "modified", "modified"
         DELETED = "deleted", "deleted"
 

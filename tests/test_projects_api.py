@@ -38,7 +38,7 @@ def test_create_project() -> None:
     event_log = EventLog.objects.get(
         entity_type=EventLog.EntityType.PROJECT,
         entity_id=body.id,
-        event_type=EventLog.EventType.NEW,
+        event_type=EventLog.EventType.CREATED,
     )
     assert event_log.event_details == {}
 
