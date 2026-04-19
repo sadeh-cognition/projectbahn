@@ -47,6 +47,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'projects.middleware.ApiResponseLoggingMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -119,3 +120,32 @@ STATIC_URL = 'static/'
 
 PROJBAHN_API_BASE_URL = "http://localhost:8001/api"
 PROJBAHN_FRONTEND_API_TRANSPORT = "http"
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'message_only': {
+            'format': '%(message)s',
+        },
+    },
+    'handlers': {
+        'rich': {
+            'class': 'rich.logging.RichHandler',
+            'level': 'DEBUG',
+            'formatter': 'message_only',
+            'show_path': False,
+            'rich_tracebacks': True,
+        },
+    },
+    'root': {
+        'handlers': ['rich'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'projects.http_server': {
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': True,
+        },
+    },
+}
