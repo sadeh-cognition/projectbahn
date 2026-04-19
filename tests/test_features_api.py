@@ -68,6 +68,25 @@ def test_create_feature(project: Project, parent_feature: Feature) -> None:
 
 
 @pytest.mark.django_db
+def test_create_feature_accepts_empty_parent_feature_id(project: Project) -> None:
+    response = client.post(
+        "/features",
+        json={
+            "project_id": project.id,
+            "parent_feature_id": "",
+            "name": "Password Reset",
+            "description": "Allow users to reset forgotten passwords.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = FeatureResponseSchema.model_validate(response.json())
+    assert body.project_id == project.id
+    assert body.parent_feature_id is None
+    assert Feature.objects.get(id=body.id).parent_feature_id is None
+
+
+@pytest.mark.django_db
 def test_list_features(feature: Feature) -> None:
     response = client.get("/features")
 
@@ -106,6 +125,25 @@ def test_update_feature(feature: Feature, other_project: Project) -> None:
     assert body.parent_feature_id is None
     assert feature.project_id == other_project.id
     assert feature.name == payload.name
+
+
+@pytest.mark.django_db
+def test_update_feature_accepts_empty_parent_feature_id(feature: Feature) -> None:
+    response = client.put(
+        f"/features/{feature.id}",
+        json={
+            "project_id": feature.project_id,
+            "parent_feature_id": "",
+            "name": feature.name,
+            "description": feature.description,
+        },
+    )
+
+    assert response.status_code == 200
+    body = FeatureResponseSchema.model_validate(response.json())
+    feature.refresh_from_db()
+    assert body.parent_feature_id is None
+    assert feature.parent_feature_id is None
 
 
 @pytest.mark.django_db
