@@ -8,7 +8,12 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django_llm_chat.dspy_chat import DSPyChat
 
-from projects.models import Feature, FeatureChatMessage, FeatureChatThread, ProjectLLMConfig
+from projects.models import (
+    Feature,
+    FeatureChatMessage,
+    FeatureChatThread,
+    ProjectLLMConfig,
+)
 
 
 class FeatureChatConfigurationError(ValueError):
@@ -59,7 +64,9 @@ class FeatureChatReply:
     llm_call_id: int | None
 
 
-def create_feature_chat_thread(*, feature: Feature, user: object, title: str) -> FeatureChatThread:
+def create_feature_chat_thread(
+    *, feature: Feature, user: object, title: str
+) -> FeatureChatThread:
     cleaned_title = title.strip()
     if not cleaned_title:
         raise FeatureChatConfigurationError("Thread title is required.")
@@ -87,7 +94,9 @@ def get_project_llm_config(feature: Feature) -> ProjectLLMConfig:
     try:
         config = feature.project.llm_config
     except ObjectDoesNotExist as exc:
-        raise FeatureChatConfigurationError("Configure the project LLM before starting a feature chat.") from exc
+        raise FeatureChatConfigurationError(
+            "Configure the project LLM before starting a feature chat."
+        ) from exc
 
     if not config.provider or not config.llm_name:
         raise FeatureChatConfigurationError("Project LLM config is incomplete.")
@@ -107,7 +116,9 @@ def build_model_name(config: ProjectLLMConfig) -> str:
 
 
 @transaction.atomic
-def generate_feature_chat_reply(*, thread: FeatureChatThread, text: str, user: object) -> FeatureChatReply:
+def generate_feature_chat_reply(
+    *, thread: FeatureChatThread, text: str, user: object
+) -> FeatureChatReply:
     cleaned_text = text.strip()
     if not cleaned_text:
         raise FeatureChatConfigurationError("Message text is required.")
@@ -137,7 +148,7 @@ def generate_feature_chat_reply(*, thread: FeatureChatThread, text: str, user: o
             user_message=user_message.text,
         )
 
-    assistant_text = str(getattr(prediction, "assistant_reply", "")).strip()
+    assistant_text = prediction.assistant_reply.strip()
     assistant_message = FeatureChatMessage.objects.create(
         thread=thread,
         role=FeatureChatMessage.Role.ASSISTANT,
