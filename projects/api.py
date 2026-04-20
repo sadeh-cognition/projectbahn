@@ -1,20 +1,32 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django.http import HttpRequest
+from django.http import HttpRequest, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, QuerySet
 from ninja.errors import HttpError
 from ninja import NinjaAPI
 from ninja.responses import Status
 
-from projects.models import EventLog, Feature, Project, ProjectLLMConfig, Task
+from projects.feature_chat import (
+    FeatureChatConfigurationError,
+    create_feature_chat_thread,
+    generate_feature_chat_reply,
+    serialize_message,
+    serialize_thread,
+)
+from projects.models import EventLog, Feature, FeatureChatThread, Project, ProjectLLMConfig, Task
 from projects.schemas import (
     EventLogPageResponseSchema,
+    FeatureChatStreamRequestSchema,
+    FeatureChatThreadCreateSchema,
+    FeatureChatThreadDetailSchema,
+    FeatureChatThreadResponseSchema,
     EventLogResponseSchema,
     FeatureCreateSchema,
     FeatureResponseSchema,
@@ -102,6 +114,8 @@ def _serialize_project_llm_config(project: Project) -> ProjectLLMConfigResponseS
             provider="",
             llm_name="",
             api_key_configured=False,
+            api_key_usable=False,
+            api_key_requires_reentry=False,
             date_created=project.date_created,
             date_updated=project.date_updated,
         )
@@ -111,6 +125,8 @@ def _serialize_project_llm_config(project: Project) -> ProjectLLMConfigResponseS
         provider=config.provider,
         llm_name=config.llm_name,
         api_key_configured=config.api_key_configured,
+        api_key_usable=config.api_key_usable,
+        api_key_requires_reentry=config.api_key_requires_reentry,
         date_created=config.date_created,
         date_updated=config.date_updated,
     )
@@ -173,6 +189,38 @@ def _build_deleted_event_log(entity_type: EventLog.EntityType, entity_id: int) -
         event_type=EventLog.EventType.DELETED,
         event_details={},
     )
+
+
+def _require_authenticated_user(request: HttpRequest) -> User:
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required.")
+    return request.user
+
+
+def _get_feature_chat_thread(*, feature_id: int, thread_id: int, user: User) -> FeatureChatThread:
+    return get_object_or_404(
+        FeatureChatThread.objects.select_related("feature__project", "owner", "chat"),
+        id=thread_id,
+        feature_id=feature_id,
+        owner_id=user.id,
+    )
+
+
+def _iter_text_chunks(text: str, *, chunk_size: int = 48) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > chunk_size:
+            chunks.append(f"{current} ")
+            current = word
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    if not chunks:
+        return [text]
+    return chunks
 
 
 @api.get("/users", response=list[UserResponseSchema])
@@ -287,7 +335,9 @@ def update_project_llm_config(
         config.llm_name = payload.llm_name
         if payload.api_key:
             config.set_api_key(payload.api_key)
-            config.save(update_fields=["provider", "llm_name", "api_key_hash", "date_updated"])
+            config.save(
+                update_fields=["provider", "llm_name", "api_key_hash", "encrypted_api_key", "date_updated"]
+            )
         else:
             config.save(update_fields=["provider", "llm_name", "date_updated"])
     return _serialize_project_llm_config(project)
@@ -530,3 +580,65 @@ def delete_task(request: HttpRequest, task_id: int) -> Status[None]:
             event_type=EventLog.EventType.DELETED,
         )
     return Status(204, None)
+
+
+@api.get("/features/{feature_id}/chat-threads", response=list[FeatureChatThreadResponseSchema])
+def list_feature_chat_threads(request: HttpRequest, feature_id: int) -> list[FeatureChatThreadResponseSchema]:
+    user = _require_authenticated_user(request)
+    get_object_or_404(Feature, id=feature_id)
+    threads = FeatureChatThread.objects.select_related("owner").filter(feature_id=feature_id, owner_id=user.id)
+    return [FeatureChatThreadResponseSchema.model_validate(serialize_thread(thread)) for thread in threads]
+
+
+@api.post("/features/{feature_id}/chat-threads", response=FeatureChatThreadResponseSchema)
+def create_feature_thread(
+    request: HttpRequest,
+    feature_id: int,
+    payload: FeatureChatThreadCreateSchema,
+) -> FeatureChatThreadResponseSchema:
+    user = _require_authenticated_user(request)
+    feature = get_object_or_404(Feature.objects.select_related("project"), id=feature_id)
+    try:
+        thread = create_feature_chat_thread(feature=feature, user=user, title=payload.title)
+    except FeatureChatConfigurationError as exc:
+        raise HttpError(400, str(exc)) from exc
+    return FeatureChatThreadResponseSchema.model_validate(serialize_thread(thread))
+
+
+@api.get("/features/{feature_id}/chat-threads/{thread_id}", response=FeatureChatThreadDetailSchema)
+def get_feature_chat_thread(request: HttpRequest, feature_id: int, thread_id: int) -> FeatureChatThreadDetailSchema:
+    user = _require_authenticated_user(request)
+    thread = _get_feature_chat_thread(feature_id=feature_id, thread_id=thread_id, user=user)
+    return FeatureChatThreadDetailSchema(
+        thread=FeatureChatThreadResponseSchema.model_validate(serialize_thread(thread)),
+        messages=[serialize_message(message) for message in thread.messages.order_by("date_created", "id")],
+    )
+
+
+@api.post("/features/{feature_id}/chat-threads/{thread_id}/messages/stream")
+def stream_feature_chat_message(
+    request: HttpRequest,
+    feature_id: int,
+    thread_id: int,
+    payload: FeatureChatStreamRequestSchema,
+) -> StreamingHttpResponse:
+    user = _require_authenticated_user(request)
+    thread = _get_feature_chat_thread(feature_id=feature_id, thread_id=thread_id, user=user)
+    try:
+        reply = generate_feature_chat_reply(thread=thread, text=payload.text, user=user)
+    except FeatureChatConfigurationError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+    def event_stream() -> Any:
+        for chunk in _iter_text_chunks(reply.assistant_message.text):
+            yield json.dumps({"type": "chunk", "text": chunk}) + "\n"
+        yield json.dumps(
+            {
+                "type": "done",
+                "assistant_message": serialize_message(reply.assistant_message),
+                "thread": serialize_thread(thread),
+                "llm_call_id": reply.llm_call_id,
+            }
+        ) + "\n"
+
+    return StreamingHttpResponse(event_stream(), content_type="application/x-ndjson")

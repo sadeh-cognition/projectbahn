@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_llm_chat',
     'projects',
 ]
 
@@ -117,6 +118,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "dashboard"
+LOGOUT_REDIRECT_URL = "dashboard"
 
 PROJBAHN_API_BASE_URL = "http://localhost:8001/api"
 PROJBAHN_FRONTEND_API_TRANSPORT = "http"

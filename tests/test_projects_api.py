@@ -14,7 +14,7 @@ from projects.schemas import (
     ProjectResponseSchema,
     ProjectUpdateSchema,
 )
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import check_password, make_password
 
 client = TestClient(api)
 
@@ -104,10 +104,12 @@ def test_get_project_llm_config_defaults_when_missing(project: Project) -> None:
     assert body.provider == ""
     assert body.llm_name == ""
     assert body.api_key_configured is False
+    assert body.api_key_usable is False
+    assert body.api_key_requires_reentry is False
 
 
 @pytest.mark.django_db
-def test_update_project_llm_config_hashes_api_key(project: Project) -> None:
+def test_update_project_llm_config_encrypts_and_hashes_api_key(project: Project) -> None:
     payload = ProjectLLMConfigUpdateSchema(
         provider="groq",
         llm_name="llama-3.1-8b-instant",
@@ -122,9 +124,13 @@ def test_update_project_llm_config_hashes_api_key(project: Project) -> None:
     assert body.provider == payload.provider
     assert body.llm_name == payload.llm_name
     assert body.api_key_configured is True
+    assert body.api_key_usable is True
+    assert body.api_key_requires_reentry is False
     config = ProjectLLMConfig.objects.get(project=project)
     assert config.api_key_hash != payload.api_key
+    assert config.encrypted_api_key != payload.api_key
     assert check_password(payload.api_key, config.api_key_hash)
+    assert config.get_api_key() == payload.api_key
 
 
 @pytest.mark.django_db
@@ -135,8 +141,9 @@ def test_update_project_llm_config_keeps_existing_api_key_when_blank(project: Pr
         llm_name="llama-3.1-8b-instant",
     )
     config.set_api_key("existing-key")
-    config.save(update_fields=["api_key_hash", "date_updated"])
+    config.save(update_fields=["api_key_hash", "encrypted_api_key", "date_updated"])
     original_hash = config.api_key_hash
+    original_encrypted_key = config.encrypted_api_key
     payload = ProjectLLMConfigUpdateSchema(
         provider="openai",
         llm_name="gpt-5.4-mini",
@@ -150,8 +157,29 @@ def test_update_project_llm_config_keeps_existing_api_key_when_blank(project: Pr
     assert body.provider == payload.provider
     assert body.llm_name == payload.llm_name
     assert body.api_key_configured is True
+    assert body.api_key_usable is True
     config.refresh_from_db()
     assert config.api_key_hash == original_hash
+    assert config.encrypted_api_key == original_encrypted_key
+
+
+@pytest.mark.django_db
+def test_get_project_llm_config_marks_legacy_hashed_key_as_reentry_required(project: Project) -> None:
+    ProjectLLMConfig.objects.create(
+        project=project,
+        provider="groq",
+        llm_name="llama-3.1-8b-instant",
+        api_key_hash=make_password("legacy-only"),
+        encrypted_api_key="",
+    )
+
+    response = client.get(f"/projects/{project.id}/llm-config")
+
+    assert response.status_code == 200
+    body = ProjectLLMConfigResponseSchema.model_validate(response.json())
+    assert body.api_key_configured is True
+    assert body.api_key_usable is False
+    assert body.api_key_requires_reentry is True
 
 
 @pytest.mark.django_db

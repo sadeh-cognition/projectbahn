@@ -110,8 +110,8 @@
                                 <h3 class="mt-2 text-lg font-semibold text-stone-50">LLM Config</h3>
                                 <p class="mt-1 text-sm text-stone-400">Store the project-specific model provider, model name, and API key.</p>
                             </div>
-                            <div class="rounded-full border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide {% if llm_config and llm_config.api_key_configured %}text-emerald-200{% else %}text-stone-400{% endif %}">
-                                {% if llm_config and llm_config.api_key_configured %}API key configured{% else %}API key not configured{% endif %}
+                            <div class="rounded-full border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide {% if llm_config and llm_config.api_key_usable %}text-emerald-200{% elif llm_config and llm_config.api_key_configured %}text-amber-200{% else %}text-stone-400{% endif %}">
+                                {% if llm_config and llm_config.api_key_usable %}API key ready{% elif llm_config and llm_config.api_key_configured %}API key needs re-entry{% else %}API key not configured{% endif %}
                             </div>
                         </div>
                         <form
@@ -136,7 +136,11 @@
                             <div>
                                 <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">API key</label>
                                 <input type="password" name="api_key" autocomplete="new-password" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100" placeholder="{% if llm_config and llm_config.api_key_configured %}Leave blank to keep current key{% else %}Enter API key{% endif %}">
-                                <p class="mt-2 text-xs text-stone-500">The API key is stored as a hash in the database and is never shown again.</p>
+                                {% if llm_config and llm_config.api_key_requires_reentry %}
+                                    <p class="mt-2 text-xs text-amber-300">This project still has a legacy hashed API key entry. Enter the API key again so feature chat can use it.</p>
+                                {% else %}
+                                    <p class="mt-2 text-xs text-stone-500">The API key is encrypted at rest and is never shown again.</p>
+                                {% endif %}
                             </div>
                             <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save LLM config</button>
                         </form>
@@ -293,6 +297,22 @@
                                                                 >
                                                                     Add task
                                                                 </button>
+                                                            {% endif %}
+                                                            {% if request.user.is_authenticated %}
+                                                                <button
+                                                                    type="button"
+                                                                    onclick="window.projbahn.openFeatureChatDrawer({{ selected_project.id }}, {{ row.feature.id }}, '{{ row.feature.name|escapejs }}')"
+                                                                    class="rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200"
+                                                                >
+                                                                    Chat
+                                                                </button>
+                                                            {% else %}
+                                                                <a
+                                                                    href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}"
+                                                                    class="rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200"
+                                                                >
+                                                                    Chat
+                                                                </a>
                                                             {% endif %}
                                                             <a href="/?project_id={{ selected_project.id }}&tab=features&edit_feature_id={{ row.feature.id }}" class="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-200">Edit</a>
                                                             <form

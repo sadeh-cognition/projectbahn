@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "cryptography>=46.0.7",
     "django>=6.0.4",
     "django-click>=2.5.0",
+    "django-llm-chat",
     "django-ninja>=1.6.2",
     "django-stubs>=6.0.3",
+    "dspy>=3.1.3",
     "model-bakery>=1.23.4",
     "pytest>=9.0.3",
     "pytest-django>=4.12.0",
@@ -19,3 +22,9 @@ dependencies = [
 DJANGO_SETTINGS_MODULE = "projbahn.settings"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "live_llm: tests that call a real language model",
+]
+
+[tool.uv.sources]
+django-llm-chat = { path = "../llm_chat" }

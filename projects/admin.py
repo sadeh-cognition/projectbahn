@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from projects.models import EventLog, Feature, Project, ProjectLLMConfig, Task
+from projects.models import (
+    EventLog,
+    Feature,
+    FeatureChatMessage,
+    FeatureChatThread,
+    Project,
+    ProjectLLMConfig,
+    Task,
+)
 
 
 @admin.register(Project)
@@ -18,7 +26,16 @@ class FeatureAdmin(admin.ModelAdmin):
 
 @admin.register(ProjectLLMConfig)
 class ProjectLLMConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "project", "provider", "llm_name", "date_created", "date_updated")
+    list_display = (
+        "id",
+        "project",
+        "provider",
+        "llm_name",
+        "api_key_configured",
+        "api_key_usable",
+        "date_created",
+        "date_updated",
+    )
     search_fields = ("project__name", "provider", "llm_name")
 
 
@@ -34,3 +51,17 @@ class EventLogAdmin(admin.ModelAdmin):
     list_display = ("id", "entity_type", "entity_id", "event_type")
     list_filter = ("entity_type", "event_type")
     search_fields = ("entity_type", "event_type")
+
+
+@admin.register(FeatureChatThread)
+class FeatureChatThreadAdmin(admin.ModelAdmin):
+    list_display = ("id", "title", "feature", "owner", "chat", "date_created", "date_updated")
+    list_filter = ("feature__project", "owner")
+    search_fields = ("title", "feature__name", "owner__username")
+
+
+@admin.register(FeatureChatMessage)
+class FeatureChatMessageAdmin(admin.ModelAdmin):
+    list_display = ("id", "thread", "role", "llm_call", "date_created")
+    list_filter = ("role",)
+    search_fields = ("thread__title", "thread__feature__name", "text")
