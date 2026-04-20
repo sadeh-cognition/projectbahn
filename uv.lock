@@ -380,35 +380,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-llm-chat"
-version = "0.1.0"
-source = { directory = "../llm_chat" }
-dependencies = [
-    { name = "django" },
-    { name = "litellm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "django", specifier = ">=5.2.8" },
-    { name = "dspy", marker = "extra == 'dspy'", specifier = ">=3.1,<4" },
-    { name = "litellm", specifier = ">=1.80.0" },
-]
-provides-extras = ["dspy"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "build", specifier = ">=1.3.0" },
-    { name = "isort", specifier = ">=7.0.0" },
-    { name = "ptpython", specifier = ">=3.0.32" },
-    { name = "pytest", specifier = ">=8.4.2" },
-    { name = "pytest-django", specifier = ">=4.11.1" },
-    { name = "rich", specifier = ">=14.2.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
-    { name = "setuptools", specifier = ">=80.9.0" },
-]
-
-[[package]]
 name = "django-ninja"
 version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1044,7 +1015,6 @@ dependencies = [
     { name = "cryptography" },
     { name = "django" },
     { name = "django-click" },
-    { name = "django-llm-chat" },
     { name = "django-ninja" },
     { name = "django-stubs" },
     { name = "dspy" },
@@ -1059,7 +1029,6 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46.0.7" },
     { name = "django", specifier = ">=6.0.4" },
     { name = "django-click", specifier = ">=2.5.0" },
-    { name = "django-llm-chat", directory = "../llm_chat" },
     { name = "django-ninja", specifier = ">=1.6.2" },
     { name = "django-stubs", specifier = ">=6.0.3" },
     { name = "dspy", specifier = ">=3.1.3" },
