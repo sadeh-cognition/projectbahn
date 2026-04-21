@@ -21,14 +21,14 @@ class EventLogBackfillPlan:
 
 def _build_backfill_plans() -> list[EventLogBackfillPlan]:
     existing_created_event_keys = set(
-        EventLog.objects.filter(event_type=EventLog.EventType.CREATED).values_list("entity_type", "entity_id")
+        EventLog.get_keys_for_event_type(EventLog.EventType.CREATED)
     )
 
     plans: list[EventLogBackfillPlan] = []
     entity_definitions = (
-        (EventLog.EntityType.PROJECT, Project.objects.order_by("date_created", "id").values_list("id", flat=True)),
-        (EventLog.EntityType.FEATURE, Feature.objects.order_by("date_created", "id").values_list("id", flat=True)),
-        (EventLog.EntityType.TASK, Task.objects.order_by("date_created", "id").values_list("id", flat=True)),
+        (EventLog.EntityType.PROJECT, Project.get_all_ids_ordered_by_date()),
+        (EventLog.EntityType.FEATURE, Feature.get_all_ids_ordered_by_date()),
+        (EventLog.EntityType.TASK, Task.get_all_ids_ordered_by_date()),
     )
     for entity_type, entity_ids in entity_definitions:
         missing_ids = [entity_id for entity_id in entity_ids if (entity_type, entity_id) not in existing_created_event_keys]
@@ -39,7 +39,7 @@ def _build_backfill_plans() -> list[EventLogBackfillPlan]:
 def backfill_event_logs(*, dry_run: bool = False) -> EventLogBackfillResult:
     plans = _build_backfill_plans()
     created_count = sum(len(plan.entity_ids) for plan in plans)
-    total_entity_count = Project.objects.count() + Feature.objects.count() + Task.objects.count()
+    total_entity_count = Project.get_total_count() + Feature.get_total_count() + Task.get_total_count()
     skipped_count = total_entity_count - created_count
 
     if dry_run or created_count == 0:
@@ -56,6 +56,6 @@ def backfill_event_logs(*, dry_run: bool = False) -> EventLogBackfillResult:
         for entity_id in plan.entity_ids
     ]
     with transaction.atomic():
-        EventLog.objects.bulk_create(event_logs)
+        EventLog.bulk_create_logs(event_logs)
 
     return EventLogBackfillResult(created_count=created_count, skipped_count=skipped_count)

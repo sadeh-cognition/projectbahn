@@ -50,7 +50,7 @@ def dashboard(request: HttpRequest) -> HttpResponse:
 
 def project_list(request: HttpRequest) -> HttpResponse:
     context = {
-        "projects": list(Project.objects.order_by("id")),
+        "projects": list(Project.get_all_ordered()),
     }
     return render(request, "projects/project_list.html", context)
 
@@ -68,7 +68,7 @@ def _build_workspace_context(
     request: HttpRequest,
     project_id: int | None,
 ) -> dict[str, object]:
-    projects = list(Project.objects.order_by("id"))
+    projects = list(Project.get_all_ordered())
     selected_project = next((project for project in projects if project.id == project_id), None)
 
     if selected_project is None:
@@ -81,7 +81,7 @@ def _build_workspace_context(
     project_features = features_for_project(
         project_id=selected_project.id,
         features=list(
-            Feature.objects.select_related("project", "parent_feature").filter(project_id=selected_project.id),
+            Feature.get_features_for_project_with_relations(selected_project.id),
         ),
     )
     feature_tree = build_feature_tree(project_features)
@@ -106,7 +106,7 @@ def _build_workspace_context(
         "projects": projects,
         "selected_project": selected_project,
         "active_tab": _active_tab_from_request(request),
-        "llm_config": ProjectLLMConfig.objects.filter(project=selected_project).first(),
+        "llm_config": ProjectLLMConfig.get_for_project(selected_project),
         "feature_tree": feature_tree,
         "feature_options": feature_options,
         "feature_rows": feature_rows,
@@ -129,7 +129,7 @@ def _build_workspace_context(
 
 
 def _task_rows(*, project_id: int, filters: TaskFilters) -> list[dict[str, object]]:
-    queryset = Task.objects.select_related("feature__project", "user").filter(feature__project_id=project_id)
+    queryset = Task.get_base_queryset_with_relations().filter(feature__project_id=project_id)
 
     if filters.search:
         queryset = queryset.filter(

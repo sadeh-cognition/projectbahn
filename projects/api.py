@@ -52,7 +52,7 @@ User = get_user_model()
 def _get_parent_feature(parent_feature_id: int | None) -> Feature | None:
     if parent_feature_id is None:
         return None
-    return get_object_or_404(Feature, id=parent_feature_id)
+    return Feature.get_by_id_or_404(parent_feature_id)
 
 
 def _validate_parent_feature(
@@ -94,7 +94,7 @@ def _serialize_task(task: Task) -> TaskResponseSchema:
 
 
 def _tasks_queryset() -> QuerySet[Task]:
-    return Task.objects.select_related("feature__project", "user")
+    return Task.get_base_queryset_with_relations()
 
 
 def _serialize_project(project: Project) -> ProjectResponseSchema:
@@ -177,7 +177,7 @@ def _create_event_log(
     event_type: EventLog.EventType,
     event_details: dict[str, Any] | None = None,
 ) -> EventLog:
-    return EventLog.objects.create(
+    return EventLog.create_log(
         entity_type=entity_type,
         entity_id=entity_id,
         event_type=event_type,
@@ -201,9 +201,8 @@ def _require_authenticated_user(request: HttpRequest) -> User:
 
 
 def _get_feature_chat_thread(*, feature_id: int, thread_id: int, user: User) -> FeatureChatThread:
-    return get_object_or_404(
-        FeatureChatThread.objects.select_related("feature__project", "owner"),
-        id=thread_id,
+    return FeatureChatThread.get_by_id_and_owner_or_404(
+        thread_id=thread_id,
         feature_id=feature_id,
         owner_id=user.id,
     )
@@ -245,7 +244,7 @@ def list_event_logs(
     if page_size < 1:
         raise HttpError(400, "Page size must be greater than or equal to 1.")
 
-    queryset = EventLog.objects.order_by("-id")
+    queryset = EventLog.get_base_queryset_ordered()
 
     if event_type is not None:
         queryset = queryset.filter(event_type=event_type)
@@ -268,7 +267,7 @@ def list_event_logs(
 
 @api.get("/projects", response=list[ProjectResponseSchema])
 def list_projects(request: HttpRequest) -> list[ProjectResponseSchema]:
-    return [_serialize_project(project) for project in Project.objects.order_by("id")]
+    return [_serialize_project(project) for project in Project.get_all_ordered()]
 
 
 @api.post("/projects", response=ProjectResponseSchema)
@@ -277,7 +276,7 @@ def create_project(
     payload: ProjectCreateSchema,
 ) -> ProjectResponseSchema:
     with transaction.atomic():
-        project = Project.objects.create(
+        project = Project.create_project(
             name=payload.name,
             description=payload.description,
         )
@@ -291,12 +290,12 @@ def create_project(
 
 @api.get("/projects/{project_id}", response=ProjectResponseSchema)
 def get_project(request: HttpRequest, project_id: int) -> ProjectResponseSchema:
-    return _serialize_project(get_object_or_404(Project, id=project_id))
+    return _serialize_project(Project.get_by_id_or_404(project_id))
 
 
 @api.get("/projects/{project_id}/llm-config", response=ProjectLLMConfigResponseSchema)
 def get_project_llm_config(request: HttpRequest, project_id: int) -> ProjectLLMConfigResponseSchema:
-    project = get_object_or_404(Project, id=project_id)
+    project = Project.get_by_id_or_404(project_id)
     return _serialize_project_llm_config(project)
 
 
@@ -306,7 +305,7 @@ def update_project(
     project_id: int,
     payload: ProjectUpdateSchema,
 ) -> ProjectResponseSchema:
-    project = get_object_or_404(Project, id=project_id)
+    project = Project.get_by_id_or_404(project_id)
     updated_values = {
         "name": payload.name,
         "description": payload.description,
@@ -332,9 +331,9 @@ def update_project_llm_config(
     payload: ProjectLLMConfigUpdateSchema,
 ) -> ProjectLLMConfigResponseSchema:
     _require_authenticated_user(request)
-    project = get_object_or_404(Project, id=project_id)
+    project = Project.get_by_id_or_404(project_id)
     with transaction.atomic():
-        config, _ = ProjectLLMConfig.objects.get_or_create(project=project)
+        config, _ = ProjectLLMConfig.get_or_create_for_project(project=project)
         config.provider = payload.provider
         config.llm_name = payload.llm_name
         if payload.api_key:
@@ -349,17 +348,13 @@ def update_project_llm_config(
 
 @api.delete("/projects/{project_id}", response={204: None})
 def delete_project(request: HttpRequest, project_id: int) -> Status[None]:
-    project = get_object_or_404(Project, id=project_id)
+    project = Project.get_by_id_or_404(project_id)
     deleted_project_id = project.id
-    feature_ids = list(
-        Feature.objects.filter(project_id=deleted_project_id).order_by("id").values_list("id", flat=True)
-    )
-    task_ids = list(
-        Task.objects.filter(feature__project_id=deleted_project_id).order_by("id").values_list("id", flat=True)
-    )
+    feature_ids = list(Feature.get_ids_for_project(deleted_project_id))
+    task_ids = list(Task.get_ids_for_project(deleted_project_id))
     with transaction.atomic():
         project.delete()
-        EventLog.objects.bulk_create(
+        EventLog.bulk_create_logs(
             [
                 *[_build_deleted_event_log(EventLog.EntityType.TASK, task_id) for task_id in task_ids],
                 *[_build_deleted_event_log(EventLog.EntityType.FEATURE, feature_id) for feature_id in feature_ids],
@@ -373,7 +368,7 @@ def delete_project(request: HttpRequest, project_id: int) -> Status[None]:
 def list_features(request: HttpRequest) -> list[FeatureResponseSchema]:
     return [
         _serialize_feature(feature)
-        for feature in Feature.objects.select_related("project", "parent_feature").order_by("id")
+        for feature in Feature.get_all_with_relations_ordered()
     ]
 
 
@@ -382,11 +377,11 @@ def create_feature(
     request: HttpRequest,
     payload: FeatureCreateSchema,
 ) -> FeatureResponseSchema:
-    project = get_object_or_404(Project, id=payload.project_id)
+    project = Project.get_by_id_or_404(payload.project_id)
     parent_feature = _get_parent_feature(payload.parent_feature_id)
     _validate_parent_feature(project=project, parent_feature=parent_feature)
     with transaction.atomic():
-        feature = Feature.objects.create(
+        feature = Feature.create_feature(
             project=project,
             parent_feature=parent_feature,
             name=payload.name,
@@ -402,9 +397,7 @@ def create_feature(
 
 @api.get("/features/{feature_id}", response=FeatureResponseSchema)
 def get_feature(request: HttpRequest, feature_id: int) -> FeatureResponseSchema:
-    return _serialize_feature(
-        get_object_or_404(Feature.objects.select_related("project", "parent_feature"), id=feature_id)
-    )
+    return _serialize_feature(Feature.get_by_id_with_relations_or_404(feature_id))
 
 
 @api.put("/features/{feature_id}", response=FeatureResponseSchema)
@@ -413,8 +406,8 @@ def update_feature(
     feature_id: int,
     payload: FeatureUpdateSchema,
 ) -> FeatureResponseSchema:
-    feature = get_object_or_404(Feature, id=feature_id)
-    project = get_object_or_404(Project, id=payload.project_id)
+    feature = Feature.get_by_id_or_404(feature_id)
+    project = Project.get_by_id_or_404(payload.project_id)
     parent_feature = _get_parent_feature(payload.parent_feature_id)
     _validate_parent_feature(project=project, parent_feature=parent_feature, feature_id=feature_id)
     updated_values = {
@@ -441,15 +434,13 @@ def update_feature(
 
 @api.delete("/features/{feature_id}", response={204: None})
 def delete_feature(request: HttpRequest, feature_id: int) -> Status[None]:
-    feature = get_object_or_404(Feature, id=feature_id)
+    feature = Feature.get_by_id_or_404(feature_id)
     deleted_feature_id = feature.id
-    task_ids = list(Task.objects.filter(feature_id=deleted_feature_id).order_by("id").values_list("id", flat=True))
-    child_feature_ids = list(
-        Feature.objects.filter(parent_feature_id=deleted_feature_id).order_by("id").values_list("id", flat=True)
-    )
+    task_ids = list(Task.get_ids_for_feature(deleted_feature_id))
+    child_feature_ids = list(Feature.get_ids_for_parent_feature(deleted_feature_id))
     with transaction.atomic():
         feature.delete()
-        EventLog.objects.bulk_create(
+        EventLog.bulk_create_logs(
             [
                 *[
                     EventLog(
@@ -515,10 +506,10 @@ def create_task(
     request: HttpRequest,
     payload: TaskCreateSchema,
 ) -> TaskResponseSchema:
-    feature = get_object_or_404(Feature, id=payload.feature_id)
+    feature = Feature.get_by_id_or_404(payload.feature_id)
     user = get_object_or_404(User, id=payload.user_id)
     with transaction.atomic():
-        task = Task.objects.create(
+        task = Task.create_task(
             feature=feature,
             user=user,
             title=payload.title,
@@ -535,7 +526,7 @@ def create_task(
 
 @api.get("/tasks/{task_id}", response=TaskResponseSchema)
 def get_task(request: HttpRequest, task_id: int) -> TaskResponseSchema:
-    task = get_object_or_404(_tasks_queryset(), id=task_id)
+    task = Task.get_by_id_with_relations_or_404(task_id)
     return _serialize_task(task)
 
 
@@ -545,8 +536,8 @@ def update_task(
     task_id: int,
     payload: TaskUpdateSchema,
 ) -> TaskResponseSchema:
-    task = get_object_or_404(Task, id=task_id)
-    feature = get_object_or_404(Feature, id=payload.feature_id)
+    task = Task.get_by_id_or_404(task_id)
+    feature = Feature.get_by_id_or_404(payload.feature_id)
     user = get_object_or_404(User, id=payload.user_id)
     updated_values = {
         "feature_id": feature.id,
@@ -574,7 +565,7 @@ def update_task(
 
 @api.delete("/tasks/{task_id}", response={204: None})
 def delete_task(request: HttpRequest, task_id: int) -> Status[None]:
-    task = get_object_or_404(Task, id=task_id)
+    task = Task.get_by_id_or_404(task_id)
     deleted_task_id = task.id
     with transaction.atomic():
         task.delete()
@@ -589,8 +580,8 @@ def delete_task(request: HttpRequest, task_id: int) -> Status[None]:
 @api.get("/features/{feature_id}/chat-threads", response=list[FeatureChatThreadResponseSchema])
 def list_feature_chat_threads(request: HttpRequest, feature_id: int) -> list[FeatureChatThreadResponseSchema]:
     user = _require_authenticated_user(request)
-    get_object_or_404(Feature, id=feature_id)
-    threads = FeatureChatThread.objects.select_related("owner").filter(feature_id=feature_id, owner_id=user.id)
+    Feature.get_by_id_or_404(feature_id)
+    threads = FeatureChatThread.get_threads_for_feature_and_owner(feature_id=feature_id, owner_id=user.id)
     return [FeatureChatThreadResponseSchema.model_validate(serialize_thread(thread)) for thread in threads]
 
 
@@ -601,7 +592,7 @@ def create_feature_thread(
     payload: FeatureChatThreadCreateSchema,
 ) -> FeatureChatThreadResponseSchema:
     user = _require_authenticated_user(request)
-    feature = get_object_or_404(Feature.objects.select_related("project"), id=feature_id)
+    feature = Feature.get_by_id_with_project_or_404(feature_id)
     try:
         thread = create_feature_chat_thread(feature=feature, user=user, title=payload.title)
     except FeatureChatConfigurationError as exc:

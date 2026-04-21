@@ -66,7 +66,7 @@ def create_feature_chat_thread(
     cleaned_title = title.strip()
     if not cleaned_title:
         raise FeatureChatConfigurationError("Thread title is required.")
-    return FeatureChatThread.objects.create(
+    return FeatureChatThread.create_thread(
         feature=feature,
         owner=user,
         title=cleaned_title,
@@ -197,7 +197,7 @@ def create_feature_chat_exchange(
     user_text: str,
     assistant_text: str,
 ) -> tuple[FeatureChatMessage, FeatureChatMessage]:
-    user_message = FeatureChatMessage.objects.create(
+    user_message = FeatureChatMessage.create_message(
         thread=thread,
         role=FeatureChatMessage.Role.USER,
         text=user_text.strip(),

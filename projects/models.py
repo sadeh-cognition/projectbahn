@@ -8,6 +8,9 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
+from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
+from typing import Any, Iterable
 
 
 def _build_fernet() -> Fernet:
@@ -24,6 +27,26 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @classmethod
+    def get_all_ordered(cls) -> QuerySet[Project]:
+        return cls.objects.order_by("id")
+
+    @classmethod
+    def get_all_ids_ordered_by_date(cls) -> QuerySet[Project]:
+        return cls.objects.order_by("date_created", "id").values_list("id", flat=True)
+
+    @classmethod
+    def get_total_count(cls) -> int:
+        return cls.objects.count()
+
+    @classmethod
+    def get_by_id_or_404(cls, project_id: int) -> Project:
+        return get_object_or_404(cls, id=project_id)
+
+    @classmethod
+    def create_project(cls, *, name: str, description: str) -> Project:
+        return cls.objects.create(name=name, description=description)
 
     def get_project_llm_config(self) -> ProjectLLMConfig:
         from projects.feature_chat import FeatureChatConfigurationError
@@ -54,6 +77,14 @@ class ProjectLLMConfig(models.Model):
     encrypted_api_key = models.TextField(blank=True)
     date_created = models.DateTimeField(auto_now_add=True)
     date_updated = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get_or_create_for_project(cls, project: Project) -> tuple[ProjectLLMConfig, bool]:
+        return cls.objects.get_or_create(project=project)
+
+    @classmethod
+    def get_for_project(cls, project: Project) -> ProjectLLMConfig | None:
+        return cls.objects.filter(project=project).first()
 
     def set_api_key(self, api_key: str) -> None:
         self.api_key_hash = make_password(api_key)
@@ -100,6 +131,51 @@ class Feature(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    @classmethod
+    def get_all_with_relations_ordered(cls) -> QuerySet[Feature]:
+        return cls.objects.select_related("project", "parent_feature").order_by("id")
+
+    @classmethod
+    def get_by_id_with_relations_or_404(cls, feature_id: int) -> Feature:
+        return get_object_or_404(cls.objects.select_related("project", "parent_feature"), id=feature_id)
+
+    @classmethod
+    def get_by_id_or_404(cls, feature_id: int) -> Feature:
+        return get_object_or_404(cls, id=feature_id)
+
+    @classmethod
+    def get_by_id_with_project_or_404(cls, feature_id: int) -> Feature:
+        return get_object_or_404(cls.objects.select_related("project"), id=feature_id)
+
+    @classmethod
+    def get_features_for_project_with_relations(cls, project_id: int) -> QuerySet[Feature]:
+        return cls.objects.select_related("project", "parent_feature").filter(project_id=project_id)
+
+    @classmethod
+    def get_ids_for_project(cls, project_id: int) -> QuerySet[Feature]:
+        return cls.objects.filter(project_id=project_id).order_by("id").values_list("id", flat=True)
+
+    @classmethod
+    def get_ids_for_parent_feature(cls, parent_feature_id: int) -> QuerySet[Feature]:
+        return cls.objects.filter(parent_feature_id=parent_feature_id).order_by("id").values_list("id", flat=True)
+
+    @classmethod
+    def get_all_ids_ordered_by_date(cls) -> QuerySet[Feature]:
+        return cls.objects.order_by("date_created", "id").values_list("id", flat=True)
+
+    @classmethod
+    def get_total_count(cls) -> int:
+        return cls.objects.count()
+
+    @classmethod
+    def create_feature(cls, *, project: Project, parent_feature: Feature | None, name: str, description: str) -> Feature:
+        return cls.objects.create(
+            project=project,
+            parent_feature=parent_feature,
+            name=name,
+            description=description,
+        )
+
 
 class Task(models.Model):
     feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name="tasks")
@@ -112,6 +188,44 @@ class Task(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    @classmethod
+    def get_base_queryset_with_relations(cls) -> QuerySet[Task]:
+        return cls.objects.select_related("feature__project", "user")
+
+    @classmethod
+    def get_by_id_or_404(cls, task_id: int) -> Task:
+        return get_object_or_404(cls, id=task_id)
+
+    @classmethod
+    def get_by_id_with_relations_or_404(cls, task_id: int) -> Task:
+        return get_object_or_404(cls.get_base_queryset_with_relations(), id=task_id)
+
+    @classmethod
+    def get_ids_for_project(cls, project_id: int) -> QuerySet[Task]:
+        return cls.objects.filter(feature__project_id=project_id).order_by("id").values_list("id", flat=True)
+
+    @classmethod
+    def get_ids_for_feature(cls, feature_id: int) -> QuerySet[Task]:
+        return cls.objects.filter(feature_id=feature_id).order_by("id").values_list("id", flat=True)
+
+    @classmethod
+    def get_all_ids_ordered_by_date(cls) -> QuerySet[Task]:
+        return cls.objects.order_by("date_created", "id").values_list("id", flat=True)
+
+    @classmethod
+    def get_total_count(cls) -> int:
+        return cls.objects.count()
+
+    @classmethod
+    def create_task(cls, *, feature: Feature, user: Any, title: str, description: str, status: str) -> Task:
+        return cls.objects.create(
+            feature=feature,
+            user=user,
+            title=title,
+            description=description,
+            status=status,
+        )
 
 
 class EventLog(models.Model):
@@ -133,6 +247,27 @@ class EventLog(models.Model):
     def __str__(self) -> str:
         return f"{self.entity_type}:{self.entity_id}:{self.event_type}"
 
+    @classmethod
+    def get_base_queryset_ordered(cls) -> QuerySet[EventLog]:
+        return cls.objects.order_by("-id")
+
+    @classmethod
+    def get_keys_for_event_type(cls, event_type: str) -> QuerySet[EventLog]:
+        return cls.objects.filter(event_type=event_type).values_list("entity_type", "entity_id")
+
+    @classmethod
+    def create_log(cls, *, entity_type: str, entity_id: int, event_type: str, event_details: dict[str, Any]) -> EventLog:
+        return cls.objects.create(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            event_details=event_details,
+        )
+
+    @classmethod
+    def bulk_create_logs(cls, logs: Iterable[EventLog]) -> None:
+        cls.objects.bulk_create(logs)
+
 
 class FeatureChatThread(models.Model):
     feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name="chat_threads")
@@ -150,6 +285,27 @@ class FeatureChatThread(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature.name}: {self.title}"
+
+    @classmethod
+    def get_threads_for_feature_and_owner(cls, *, feature_id: int, owner_id: int) -> QuerySet[FeatureChatThread]:
+        return cls.objects.select_related("owner").filter(feature_id=feature_id, owner_id=owner_id)
+
+    @classmethod
+    def get_by_id_and_owner_or_404(cls, *, thread_id: int, feature_id: int, owner_id: int) -> FeatureChatThread:
+        return get_object_or_404(
+            cls.objects.select_related("feature__project", "owner"),
+            id=thread_id,
+            feature_id=feature_id,
+            owner_id=owner_id,
+        )
+
+    @classmethod
+    def create_thread(cls, *, feature: Feature, owner: Any, title: str) -> FeatureChatThread:
+        return cls.objects.create(
+            feature=feature,
+            owner=owner,
+            title=title,
+        )
 
     def list_thread_messages(self) -> list[FeatureChatMessage]:
         return list(self.messages.order_by("date_created", "id"))
@@ -191,3 +347,12 @@ class FeatureChatMessage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.thread_id}:{self.role}"
+
+    @classmethod
+    def create_message(cls, *, thread: FeatureChatThread, role: str, text: str, metadata: dict[str, Any] | None = None) -> FeatureChatMessage:
+        return cls.objects.create(
+            thread=thread,
+            role=role,
+            text=text,
+            metadata=metadata or {},
+        )
