@@ -68,39 +68,84 @@
 
         {% if active_tab == "project_settings" %}
             <div class="mt-6">
-                <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
-                    <div class="mb-4 flex items-center justify-between">
-                        <h3 class="text-lg font-semibold text-stone-50">Project settings</h3>
+                <div class="space-y-6">
+                    <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                        <div class="mb-4 flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-stone-50">Project settings</h3>
+                            <form
+                                method="post"
+                                hx-delete="/api/projects/{{ selected_project.id }}"
+                                hx-swap="none"
+                                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                hx-on::after-request="window.projbahn.handleDeleteProject(event)"
+                            >
+                                <button type="submit" class="rounded-xl border border-rose-500/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-rose-200">Delete project</button>
+                            </form>
+                        </div>
                         <form
                             method="post"
-                            hx-delete="/api/projects/{{ selected_project.id }}"
+                            hx-ext="json-enc"
+                            hx-put="/api/projects/{{ selected_project.id }}"
                             hx-swap="none"
                             hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-                            hx-on::after-request="window.projbahn.handleDeleteProject(event)"
+                            hx-on::after-request="window.projbahn.handleUpdateProject(event, {{ selected_project.id }})"
+                            class="space-y-3"
                         >
-                            <button type="submit" class="rounded-xl border border-rose-500/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-rose-200">Delete project</button>
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Name</label>
+                                <input name="name" required value="{{ selected_project.name }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
+                                <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">{{ selected_project.description }}</textarea>
+                            </div>
+                            <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save project</button>
                         </form>
-                    </div>
-                    <form
-                        method="post"
-                        hx-ext="json-enc"
-                        hx-put="/api/projects/{{ selected_project.id }}"
-                        hx-swap="none"
-                        hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-                        hx-on::after-request="window.projbahn.handleUpdateProject(event, {{ selected_project.id }})"
-                        class="space-y-3"
-                    >
-                        <div>
-                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Name</label>
-                            <input name="name" required value="{{ selected_project.name }}" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                    </section>
+
+                    <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                        <div class="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <p class="text-xs uppercase tracking-[0.3em] text-cyan-400">Configuration</p>
+                                <h3 class="mt-2 text-lg font-semibold text-stone-50">LLM Config</h3>
+                                <p class="mt-1 text-sm text-stone-400">Store the project-specific model provider, model name, and API key.</p>
+                            </div>
+                            <div class="rounded-full border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide {% if llm_config and llm_config.api_key_usable %}text-emerald-200{% elif llm_config and llm_config.api_key_configured %}text-amber-200{% else %}text-stone-400{% endif %}">
+                                {% if llm_config and llm_config.api_key_usable %}API key ready{% elif llm_config and llm_config.api_key_configured %}API key needs re-entry{% else %}API key not configured{% endif %}
+                            </div>
                         </div>
-                        <div>
-                            <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Description</label>
-                            <textarea name="description" rows="3" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">{{ selected_project.description }}</textarea>
-                        </div>
-                        <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save project</button>
-                    </form>
-                </section>
+                        <form
+                            method="post"
+                            hx-ext="json-enc"
+                            hx-put="/api/projects/{{ selected_project.id }}/llm-config"
+                            hx-swap="none"
+                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                            hx-on::after-request="window.projbahn.handleUpdateProjectLlmConfig(event, {{ selected_project.id }})"
+                            class="space-y-4"
+                        >
+                            <div class="grid gap-4 md:grid-cols-2">
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">Provider</label>
+                                    <input name="provider" value="{{ llm_config.provider|default:'' }}" placeholder="groq" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">LLM name</label>
+                                    <input name="llm_name" value="{{ llm_config.llm_name|default:'' }}" placeholder="llama-3.1-8b-instant" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">API key</label>
+                                <input type="password" name="api_key" autocomplete="new-password" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100" placeholder="{% if llm_config and llm_config.api_key_configured %}Leave blank to keep current key{% else %}Enter API key{% endif %}">
+                                {% if llm_config and llm_config.api_key_requires_reentry %}
+                                    <p class="mt-2 text-xs text-amber-300">This project still has a legacy hashed API key entry. Enter the API key again so feature chat can use it.</p>
+                                {% else %}
+                                    <p class="mt-2 text-xs text-stone-500">The API key is encrypted at rest and is never shown again.</p>
+                                {% endif %}
+                            </div>
+                            <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save LLM config</button>
+                        </form>
+                    </section>
+                </div>
             </div>
         {% elif active_tab == "features" %}
             <div class="mx-auto mt-6 max-w-5xl space-y-6">
@@ -252,6 +297,22 @@
                                                                 >
                                                                     Add task
                                                                 </button>
+                                                            {% endif %}
+                                                            {% if request.user.is_authenticated %}
+                                                                <button
+                                                                    type="button"
+                                                                    onclick="window.projbahn.openFeatureChatDrawer({{ selected_project.id }}, {{ row.feature.id }}, '{{ row.feature.name|escapejs }}')"
+                                                                    class="rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200"
+                                                                >
+                                                                    Chat
+                                                                </button>
+                                                            {% else %}
+                                                                <a
+                                                                    href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}"
+                                                                    class="rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200"
+                                                                >
+                                                                    Chat
+                                                                </a>
                                                             {% endif %}
                                                             <a href="/?project_id={{ selected_project.id }}&tab=features&edit_feature_id={{ row.feature.id }}" class="rounded-lg border border-stone-700 px-3 py-1.5 text-xs text-stone-200">Edit</a>
                                                             <form

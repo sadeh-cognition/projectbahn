@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 import dspy
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django_llm_chat.dspy_chat import DSPyChat
 
 from projects.models import (
     Feature,
@@ -70,12 +69,10 @@ def create_feature_chat_thread(
     cleaned_title = title.strip()
     if not cleaned_title:
         raise FeatureChatConfigurationError("Thread title is required.")
-    dspy_chat = DSPyChat.create(project=None)
     return FeatureChatThread.objects.create(
         feature=feature,
         owner=user,
         title=cleaned_title,
-        chat=dspy_chat.chat_db_model,
     )
 
 
@@ -115,28 +112,137 @@ def build_model_name(config: ProjectLLMConfig) -> str:
     return f"{config.provider}/{config.llm_name}"
 
 
+def build_lm_kwargs(config: ProjectLLMConfig) -> dict[str, Any]:
+    return {
+        "model": build_model_name(config),
+        "api_key": config.get_api_key(),
+        "temperature": 0.2,
+        "cache": True,
+        "max_tokens": 1200,
+        "custom_llm_provider": config.provider,
+    }
+
+
+def build_stream_lm_kwargs(config: ProjectLLMConfig) -> dict[str, Any]:
+    kwargs = build_lm_kwargs(config).copy()
+    kwargs["cache"] = False
+    return kwargs
+
+
+def build_feature_chat_module_inputs(
+    *,
+    thread: FeatureChatThread,
+    conversation_history: str,
+    user_message: str,
+) -> dict[str, str]:
+    return {
+        "project_name": thread.feature.project.name,
+        "project_description": thread.feature.project.description,
+        "feature_name": thread.feature.name,
+        "feature_description": thread.feature.description,
+        "conversation_history": conversation_history,
+        "user_message": user_message,
+    }
+
+
+def prepare_feature_chat_request(
+    *, thread: FeatureChatThread, text: str, user: object
+) -> tuple[str, ProjectLLMConfig, dict[str, str]]:
+    del user
+    cleaned_text = text.strip()
+    if not cleaned_text:
+        raise FeatureChatConfigurationError("Message text is required.")
+
+    config = get_project_llm_config(thread.feature)
+    module_inputs = build_feature_chat_module_inputs(
+        thread=thread,
+        conversation_history=build_history_text(thread),
+        user_message=cleaned_text,
+    )
+    return cleaned_text, config, module_inputs
+
+
+def iter_feature_chat_response_text(
+    *, config: ProjectLLMConfig, module_inputs: dict[str, str]
+) -> Iterator[str]:
+    lm = dspy.LM(**build_stream_lm_kwargs(config))
+    module = FeatureChatModule()
+    stream_module = dspy.streamify(
+        module,
+        stream_listeners=[
+            dspy.streaming.StreamListener(signature_field_name="assistant_reply"),
+        ],
+        async_streaming=False,
+    )
+    final_prediction: dspy.Prediction | None = None
+    yielded_chunk = False
+
+    with dspy.context(lm=lm):
+        for value in stream_module(**module_inputs):
+            if isinstance(value, dspy.streaming.StreamResponse):
+                if value.chunk:
+                    yielded_chunk = True
+                    yield value.chunk
+                continue
+            if isinstance(value, dspy.Prediction):
+                final_prediction = value
+
+    if final_prediction is None:
+        raise RuntimeError("Feature chat stream completed without a final prediction.")
+    if not yielded_chunk and final_prediction.assistant_reply:
+        yield final_prediction.assistant_reply
+
+
+def create_feature_chat_assistant_message(
+    *,
+    thread: FeatureChatThread,
+    config: ProjectLLMConfig,
+    assistant_text: str,
+) -> FeatureChatMessage:
+    assistant_message = FeatureChatMessage.objects.create(
+        thread=thread,
+        role=FeatureChatMessage.Role.ASSISTANT,
+        text=assistant_text.strip(),
+        metadata={
+            "provider": config.provider,
+            "llm_name": build_model_name(config),
+        },
+    )
+    thread.save(update_fields=["date_updated"])
+    return assistant_message
+
+
+@transaction.atomic
+def create_feature_chat_exchange(
+    *,
+    thread: FeatureChatThread,
+    config: ProjectLLMConfig,
+    user_text: str,
+    assistant_text: str,
+) -> tuple[FeatureChatMessage, FeatureChatMessage]:
+    user_message = FeatureChatMessage.objects.create(
+        thread=thread,
+        role=FeatureChatMessage.Role.USER,
+        text=user_text.strip(),
+    )
+    assistant_message = create_feature_chat_assistant_message(
+        thread=thread,
+        config=config,
+        assistant_text=assistant_text,
+    )
+    return user_message, assistant_message
+
+
 @transaction.atomic
 def generate_feature_chat_reply(
     *, thread: FeatureChatThread, text: str, user: object
 ) -> FeatureChatReply:
+    del user
     cleaned_text = text.strip()
     if not cleaned_text:
         raise FeatureChatConfigurationError("Message text is required.")
     config = get_project_llm_config(thread.feature)
-    user_message = FeatureChatMessage.objects.create(
-        thread=thread,
-        role=FeatureChatMessage.Role.USER,
-        text=cleaned_text,
-    )
-    dspy_chat = DSPyChat.from_db(thread.chat)
-    lm = dspy_chat.as_lm(
-        model=build_model_name(config),
-        user=user,
-        use_cache=True,
-        api_key=config.get_api_key(),
-        temperature=0.2,
-        max_tokens=1200,
-    )
+    lm = dspy.LM(**build_lm_kwargs(config))
     module = FeatureChatModule()
     with dspy.context(lm=lm):
         prediction = module(
@@ -145,25 +251,19 @@ def generate_feature_chat_reply(
             feature_name=thread.feature.name,
             feature_description=thread.feature.description,
             conversation_history=build_history_text(thread),
-            user_message=user_message.text,
+            user_message=cleaned_text,
         )
 
-    assistant_text = prediction.assistant_reply.strip()
-    assistant_message = FeatureChatMessage.objects.create(
+    user_message, assistant_message = create_feature_chat_exchange(
         thread=thread,
-        role=FeatureChatMessage.Role.ASSISTANT,
-        text=assistant_text,
-        llm_call_id=dspy_chat.llm_call.id if dspy_chat.llm_call is not None else None,
+        config=config,
+        user_text=cleaned_text,
+        assistant_text=prediction.assistant_reply,
     )
-    if dspy_chat.llm_call is not None:
-        user_message.llm_call = dspy_chat.llm_call
-        user_message.save(update_fields=["llm_call", "date_updated"])
-
-    thread.save(update_fields=["date_updated"])
     return FeatureChatReply(
         user_message=user_message,
         assistant_message=assistant_message,
-        llm_call_id=dspy_chat.llm_call.id if dspy_chat.llm_call is not None else None,
+        llm_call_id=None,
     )
 
 

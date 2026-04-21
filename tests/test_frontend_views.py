@@ -8,7 +8,7 @@ from django.test import Client
 import pytest
 from model_bakery import baker
 
-from projects.models import Feature, Project, Task
+from projects.models import Feature, Project, ProjectLLMConfig, Task
 
 User = get_user_model()
 
@@ -103,6 +103,30 @@ def test_workspace_can_render_features_tab() -> None:
     assert 'name="feature_id" value="' + str(feature.id) + '"' in content
     assert f"Create task for {feature.name}" in content
     assert user.username in content
+    assert "Chat" in content
+    assert "/login/?next=" in content
+
+
+@pytest.mark.django_db
+def test_workspace_features_tab_renders_chat_button_for_authenticated_user() -> None:
+    client = Client()
+    user = baker.make(User, username="alex")
+    client.force_login(user)
+    project = baker.make(Project, name="Platform", description="Core platform")
+    feature = baker.make(
+        Feature,
+        project=project,
+        parent_feature=None,
+        name="Auth",
+        description="Authentication feature",
+    )
+
+    response = client.get("/workspace/", {"project_id": project.id, "tab": "features"})
+
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert f"openFeatureChatDrawer({project.id}, {feature.id}, 'Auth')" in content
+    assert 'id="feature-chat-drawer"' not in content
 
 
 @pytest.mark.django_db
@@ -115,11 +139,53 @@ def test_workspace_can_render_project_settings_tab() -> None:
     assert response.status_code == 200
     content = response.content.decode("utf-8")
     assert "Project settings" in content
+    assert "LLM Config" in content
+    assert "Save LLM config" in content
+    assert 'hx-put="/api/projects/' + str(project.id) + '/llm-config"' in content
     assert "Save project" in content
-    assert 'hx-put="/api/projects/' + str(project.id) + '"' in content
-    assert "LLM Config" not in content
-    assert "Save LLM config" not in content
     assert "Create top-level or nested features" not in content
+
+
+@pytest.mark.django_db
+def test_workspace_project_settings_tab_renders_existing_llm_config() -> None:
+    client = Client()
+    project = baker.make(Project, name="Platform", description="Core platform")
+    config = ProjectLLMConfig.objects.create(
+        project=project,
+        provider="groq",
+        llm_name="llama-3.1-8b-instant",
+    )
+    config.set_api_key("secret-value")
+    config.save(update_fields=["api_key_hash", "encrypted_api_key", "date_updated"])
+
+    response = client.get("/workspace/", {"project_id": project.id, "tab": "project_settings"})
+
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert 'value="groq"' in content
+    assert 'value="llama-3.1-8b-instant"' in content
+    assert "API key ready" in content
+    assert "Leave blank to keep current key" in content
+
+
+@pytest.mark.django_db
+def test_workspace_project_settings_tab_flags_legacy_api_key_entry() -> None:
+    client = Client()
+    project = baker.make(Project, name="Platform", description="Core platform")
+    ProjectLLMConfig.objects.create(
+        project=project,
+        provider="groq",
+        llm_name="llama-3.1-8b-instant",
+        api_key_hash="legacy-hash-only",
+        encrypted_api_key="",
+    )
+
+    response = client.get("/workspace/", {"project_id": project.id, "tab": "project_settings"})
+
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert "API key needs re-entry" in content
+    assert "legacy hashed API key entry" in content
 
 
 @pytest.mark.django_db

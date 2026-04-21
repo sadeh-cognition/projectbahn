@@ -31,6 +31,23 @@ class ProjectResponseSchema(Schema):
     date_updated: datetime
 
 
+class ProjectLLMConfigUpdateSchema(Schema):
+    provider: str
+    llm_name: str
+    api_key: str = ""
+
+
+class ProjectLLMConfigResponseSchema(Schema):
+    project_id: int
+    provider: str
+    llm_name: str
+    api_key_configured: bool
+    api_key_usable: bool
+    api_key_requires_reentry: bool
+    date_created: datetime
+    date_updated: datetime
+
+
 class FeatureCreateSchema(Schema):
     project_id: int
     parent_feature_id: int | None = None
@@ -116,3 +133,35 @@ class EventLogPageResponseSchema(Schema):
 class UserResponseSchema(Schema):
     id: int
     username: str
+
+
+class FeatureChatThreadCreateSchema(Schema):
+    title: str
+
+
+class FeatureChatThreadResponseSchema(Schema):
+    id: int
+    feature_id: int
+    owner_id: int
+    owner_username: str
+    title: str
+    date_created: datetime
+    date_updated: datetime
+    message_count: int
+
+
+class FeatureChatMessageResponseSchema(Schema):
+    id: int
+    role: str
+    text: str
+    date_created: datetime
+    metadata: dict[str, object]
+
+
+class FeatureChatThreadDetailSchema(Schema):
+    thread: FeatureChatThreadResponseSchema
+    messages: list[FeatureChatMessageResponseSchema]
+
+
+class FeatureChatStreamRequestSchema(Schema):
+    text: str
