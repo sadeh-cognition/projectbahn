@@ -6,6 +6,7 @@ import hashlib
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 
 
@@ -23,6 +24,26 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def get_project_llm_config(self) -> ProjectLLMConfig:
+        from projects.feature_chat import FeatureChatConfigurationError
+
+        try:
+            config = self.llm_config
+        except ObjectDoesNotExist as exc:
+            raise FeatureChatConfigurationError(
+                "Configure the project LLM before starting a feature chat."
+            ) from exc
+
+        if not config.provider or not config.llm_name:
+            raise FeatureChatConfigurationError("Project LLM config is incomplete.")
+        if config.api_key_requires_reentry:
+            raise FeatureChatConfigurationError(
+                "This project has a legacy API key entry. Re-save the API key in project settings before chatting."
+            )
+        if not config.api_key_usable:
+            raise FeatureChatConfigurationError("Project LLM API key is missing.")
+        return config
 
 
 class ProjectLLMConfig(models.Model):
@@ -129,6 +150,27 @@ class FeatureChatThread(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature.name}: {self.title}"
+
+    def list_thread_messages(self) -> list[FeatureChatMessage]:
+        return list(self.messages.order_by("date_created", "id"))
+
+    def create_feature_chat_assistant_message(
+        self,
+        *,
+        config: ProjectLLMConfig,
+        assistant_text: str,
+    ) -> FeatureChatMessage:
+        llm_name = config.llm_name if "/" in config.llm_name else f"{config.provider}/{config.llm_name}"
+        assistant_message = self.messages.create(
+            role=FeatureChatMessage.Role.ASSISTANT,
+            text=assistant_text.strip(),
+            metadata={
+                "provider": config.provider,
+                "llm_name": llm_name,
+            },
+        )
+        self.save(update_fields=["date_updated"])
+        return assistant_message
 
 
 class FeatureChatMessage(models.Model):

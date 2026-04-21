@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 
+import dspy
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 
@@ -13,10 +14,10 @@ from model_bakery import baker
 
 from projects.api import api
 from projects.feature_chat import (
+    build_conversation_history,
     build_feature_chat_module_inputs,
     build_lm_kwargs,
     build_stream_lm_kwargs,
-    create_feature_chat_assistant_message,
     prepare_feature_chat_request,
 )
 from projects.models import Feature, FeatureChatMessage, FeatureChatThread, Project, ProjectLLMConfig
@@ -206,7 +207,9 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
 
     module_inputs = build_feature_chat_module_inputs(
         thread=thread,
-        conversation_history="Assistant: Existing guidance",
+        conversation_history=dspy.History(
+            messages=[{"user_message": "What exists already?", "assistant_reply": "Existing guidance"}]
+        ),
         user_message="How should we build login?",
     )
 
@@ -215,9 +218,41 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
         "project_description": "Core platform",
         "feature_name": "Authentication",
         "feature_description": "Authentication feature",
-        "conversation_history": "Assistant: Existing guidance",
+        "conversation_history": dspy.History(
+            messages=[{"user_message": "What exists already?", "assistant_reply": "Existing guidance"}]
+        ),
         "user_message": "How should we build login?",
     }
+
+
+@pytest.mark.django_db
+def test_build_conversation_history_returns_dspy_history(feature: Feature, user: User) -> None:
+    thread = FeatureChatThread.objects.create(
+        feature=feature,
+        owner=user,
+        title="Implementation review",
+    )
+    FeatureChatMessage.objects.create(
+        thread=thread,
+        role=FeatureChatMessage.Role.USER,
+        text="How should login work?",
+    )
+    FeatureChatMessage.objects.create(
+        thread=thread,
+        role=FeatureChatMessage.Role.ASSISTANT,
+        text="Start with session auth.",
+    )
+
+    history = build_conversation_history(thread)
+
+    assert history == dspy.History(
+        messages=[
+            {
+                "user_message": "How should login work?",
+                "assistant_reply": "Start with session auth.",
+            }
+        ]
+    )
 
 
 @pytest.mark.django_db
@@ -255,7 +290,9 @@ def test_prepare_feature_chat_request_builds_dspy_module_inputs_without_persisti
     assert module_inputs["project_description"] == "Core platform"
     assert module_inputs["feature_name"] == "Authentication"
     assert module_inputs["feature_description"] == "Authentication feature"
-    assert module_inputs["conversation_history"] == "Assistant: Existing guidance"
+    assert module_inputs["conversation_history"] == dspy.History(
+        messages=[{"user_message": "", "assistant_reply": "Existing guidance"}]
+    )
     assert module_inputs["user_message"] == "How should we build login?"
     assert FeatureChatMessage.objects.filter(thread=thread, role=FeatureChatMessage.Role.USER).count() == 0
 
@@ -273,8 +310,7 @@ def test_create_feature_chat_assistant_message_persists_metadata(feature: Featur
         title="Implementation review",
     )
 
-    assistant_message = create_feature_chat_assistant_message(
-        thread=thread,
+    assistant_message = thread.create_feature_chat_assistant_message(
         config=config,
         assistant_text="  Add auth middleware first.  ",
     )
