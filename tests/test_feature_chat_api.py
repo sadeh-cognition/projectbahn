@@ -21,6 +21,11 @@ from projects.feature_chat import (
     prepare_feature_chat_request,
 )
 from projects.models import Feature, FeatureChatMessage, FeatureChatThread, Project, ProjectLLMConfig
+from projects.observability import (
+    configure_dspy_mlflow,
+    mlflow_tracing_enabled,
+    reset_dspy_mlflow_state,
+)
 from projects.schemas import FeatureChatThreadDetailSchema, FeatureChatThreadResponseSchema
 
 client = TestClient(api)
@@ -42,6 +47,13 @@ def feature() -> Feature:
         name="Authentication",
         description="Authentication feature",
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_mlflow_state() -> None:
+    reset_dspy_mlflow_state()
+    yield
+    reset_dspy_mlflow_state()
 
 
 @pytest.mark.django_db
@@ -192,6 +204,51 @@ def test_build_stream_lm_kwargs_omits_dspy_cache_flag(feature: Feature) -> None:
     assert kwargs["custom_llm_provider"] == "groq"
     assert kwargs["api_key"] == "test-api-key"
     assert kwargs["cache"] is False
+
+
+def test_mlflow_tracing_enabled_requires_flag_and_tracking_uri(settings) -> None:
+    settings.PROJBAHN_DSPY_MLFLOW_ENABLED = False
+    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+    assert mlflow_tracing_enabled() is False
+
+    settings.PROJBAHN_DSPY_MLFLOW_ENABLED = True
+    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "   "
+    assert mlflow_tracing_enabled() is False
+
+    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+    assert mlflow_tracing_enabled() is True
+
+
+def test_configure_dspy_mlflow_sets_tracking_uri_experiment_and_autolog_once(settings) -> None:
+    class FakeDSPyAutolog:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def autolog(self) -> None:
+            self.calls += 1
+
+    class FakeMLflow:
+        def __init__(self) -> None:
+            self.tracking_uris: list[str] = []
+            self.experiments: list[str] = []
+            self.dspy = FakeDSPyAutolog()
+
+        def set_tracking_uri(self, value: str) -> None:
+            self.tracking_uris.append(value)
+
+        def set_experiment(self, value: str) -> None:
+            self.experiments.append(value)
+
+    settings.PROJBAHN_DSPY_MLFLOW_ENABLED = True
+    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+    settings.PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME = "Projbahn DSPy"
+    fake_mlflow = FakeMLflow()
+
+    assert configure_dspy_mlflow(mlflow_module=fake_mlflow) is True
+    assert configure_dspy_mlflow(mlflow_module=fake_mlflow) is True
+    assert fake_mlflow.tracking_uris == ["http://127.0.0.1:5000"]
+    assert fake_mlflow.experiments == ["Projbahn DSPy"]
+    assert fake_mlflow.dspy.calls == 1
 
 
 @pytest.mark.django_db

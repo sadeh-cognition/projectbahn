@@ -10,7 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -124,6 +132,15 @@ LOGOUT_REDIRECT_URL = "dashboard"
 
 PROJBAHN_API_BASE_URL = "http://localhost:8001/api"
 PROJBAHN_FRONTEND_API_TRANSPORT = "http"
+PROJBAHN_DSPY_MLFLOW_ENABLED = _env_flag("PROJBAHN_DSPY_MLFLOW_ENABLED", default=False)
+PROJBAHN_DSPY_MLFLOW_TRACKING_URI = os.environ.get(
+    "PROJBAHN_DSPY_MLFLOW_TRACKING_URI",
+    "http://127.0.0.1:5000",
+)
+PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME = os.environ.get(
+    "PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME",
+    "Projbahn DSPy",
+)
 
 LOGGING = {
     'version': 1,
