@@ -238,10 +238,8 @@ def _build_project_agent_id(project_id: int) -> str:
 
 def _build_project_filters(*, project_id: int) -> dict[str, Any]:
     return {
-        "AND": [
-            {"user_id": app_settings.mem0_settings.user_scope},
-            {"agent_id": _build_project_agent_id(project_id)},
-        ]
+        "user_id": app_settings.mem0_settings.user_scope,
+        "agent_id": _build_project_agent_id(project_id),
     }
 
 

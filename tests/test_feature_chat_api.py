@@ -278,6 +278,26 @@ def test_configure_dspy_mlflow_sets_tracking_uri_experiment_and_autolog_once(mon
     assert fake_mlflow.dspy.calls == 1
 
 
+def test_configure_dspy_mlflow_logs_when_tracking_uri_is_set_but_disabled(
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(
+        app_settings,
+        "dspy_settings",
+        DSPySettings(
+            mlflow_enabled=False,
+            mlflow_tracking_uri="http://127.0.0.1:5000",
+            mlflow_experiment_name="Projbahn DSPy",
+        ),
+    )
+
+    with caplog.at_level("INFO"):
+        assert configure_dspy_mlflow() is False
+
+    assert "PROJBAHN_DSPY_MLFLOW_ENABLED=true" in caplog.text
+
+
 @pytest.mark.django_db
 def test_build_feature_chat_module_inputs_returns_dspy_inputs(
     feature: Feature,

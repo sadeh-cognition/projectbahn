@@ -26,6 +26,7 @@ uv run mlflow server
 Enable tracing before starting Django:
 
 ```bash
+export PROJBAHN_DSPY_MLFLOW_ENABLED=true
 export PROJBAHN_DSPY_MLFLOW_TRACKING_URI=http://127.0.0.1:5000
 export PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME="Projbahn DSPy"
 uv run manage.py runserver 8001
