@@ -20,7 +20,7 @@ This project can publish DSPy traces to MLflow, following the DSPy observability
 Start an MLflow server:
 
 ```bash
-uv run mlflow server --backend-store-uri sqlite:///mlflow.db
+uv run mlflow server
 ```
 
 Enable tracing before starting Django:
