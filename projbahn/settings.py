@@ -13,9 +13,12 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
 from projbahn.dspy_settings import DSPySettings
+from projbahn.llm_encryption_settings import LLMEncryptionSettings
 from projbahn.mem0_settings import Mem0Settings
 
 load_dotenv()
@@ -139,6 +142,13 @@ LOGOUT_REDIRECT_URL = "dashboard"
 
 dspy_settings = DSPySettings()
 mem0_settings = Mem0Settings()
+try:
+    llm_encryption_settings = LLMEncryptionSettings()
+except ValidationError as exc:
+    raise ImproperlyConfigured(
+        "Missing required environment variable: LLM_API_KEY_ENCRYPTION_KEY"
+    ) from exc
+LLM_API_KEY_ENCRYPTION_KEY = llm_encryption_settings.api_key_encryption_key
 
 PROJBAHN_API_BASE_URL = "http://localhost:8001/api"
 PROJBAHN_FRONTEND_API_TRANSPORT = "http"

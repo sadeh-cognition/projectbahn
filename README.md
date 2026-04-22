@@ -5,6 +5,16 @@ This repo contains:
 - A Django + django-ninja HTTP API for projects, features, tasks, and event logs
 - A Django-rendered web frontend for project and task management
 
+## Required environment variables
+
+Set `LLM_API_KEY_ENCRYPTION_KEY` before starting Django. Projbahn uses this value to encrypt stored project LLM API keys at rest, and startup will fail if it is missing.
+
+Remember not to modify this after the first time you set it otherwise your LLM API keys won't be useful. If this happens, you can set your LLM API key per project again.
+
+```bash
+export LLM_API_KEY_ENCRYPTION_KEY=replace-with-a-strong-secret
+```
+
 ## Run the backend
 
 ```bash

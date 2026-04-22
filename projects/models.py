@@ -14,7 +14,7 @@ from typing import Any, Iterable
 
 
 def _build_fernet() -> Fernet:
-    secret = settings.SECRET_KEY.encode("utf-8")
+    secret = settings.LLM_API_KEY_ENCRYPTION_KEY.encode("utf-8")
     digest = hashlib.sha256(secret).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
