@@ -75,11 +75,7 @@ def test_create_feature(project: Project, parent_feature: Feature) -> None:
 
 
 @pytest.mark.django_db
-def test_create_feature_saves_memory_when_mem0_is_enabled(settings, project: Project) -> None:
-    settings.PROJBAHN_MEM0_ENABLED = True
-    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
-    RecordingProjectMemoryStore.reset()
-
+def test_create_feature_saves_memory(project: Project) -> None:
     response = client.post(
         "/features",
         json={
@@ -177,14 +173,7 @@ def test_update_feature(feature: Feature, other_project: Project) -> None:
 
 
 @pytest.mark.django_db
-def test_update_feature_refreshes_memory_when_mem0_is_enabled(
-    settings,
-    feature: Feature,
-) -> None:
-    settings.PROJBAHN_MEM0_ENABLED = True
-    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
-    RecordingProjectMemoryStore.reset()
-
+def test_update_feature_refreshes_memory(feature: Feature) -> None:
     response = client.put(
         f"/features/{feature.id}",
         json={

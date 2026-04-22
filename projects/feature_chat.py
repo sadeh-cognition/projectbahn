@@ -4,6 +4,7 @@ from typing import Any, Iterator
 import dspy
 from django.db import transaction
 
+from projbahn import settings as app_settings
 from projects.models import (
     Feature,
     FeatureChatMessage,
@@ -116,9 +117,9 @@ def build_lm_kwargs(config: ProjectLLMConfig) -> dict[str, Any]:
     return {
         "model": build_model_name(config),
         "api_key": config.get_api_key(),
-        "temperature": 0.2,
-        "cache": True,
-        "max_tokens": 1200,
+        "temperature": app_settings.dspy_settings.temperature,
+        "cache": app_settings.dspy_settings.cache_enabled,
+        "max_tokens": app_settings.dspy_settings.max_tokens,
         "custom_llm_provider": config.provider,
     }
 

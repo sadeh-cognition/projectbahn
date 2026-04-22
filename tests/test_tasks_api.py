@@ -87,11 +87,7 @@ def test_create_task(feature: Feature, user) -> None:
 
 
 @pytest.mark.django_db
-def test_create_task_saves_memory_when_mem0_is_enabled(settings, feature: Feature, user) -> None:
-    settings.PROJBAHN_MEM0_ENABLED = True
-    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
-    RecordingProjectMemoryStore.reset()
-
+def test_create_task_saves_memory(feature: Feature, user) -> None:
     response = client.post(
         "/tasks",
         json={
@@ -179,11 +175,11 @@ def test_update_task(task: Task, feature: Feature, other_user) -> None:
 
 
 @pytest.mark.django_db
-def test_update_task_refreshes_memory_when_mem0_is_enabled(settings, task: Task, feature: Feature, other_user) -> None:
-    settings.PROJBAHN_MEM0_ENABLED = True
-    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
-    RecordingProjectMemoryStore.reset()
-
+def test_update_task_refreshes_memory(
+    task: Task,
+    feature: Feature,
+    other_user,
+) -> None:
     response = client.put(
         f"/tasks/{task.id}",
         json={
@@ -201,6 +197,8 @@ def test_update_task_refreshes_memory_when_mem0_is_enabled(settings, task: Task,
         "task_id": task.id,
         "memory": f"task:{task.id}:Ship UI wiring:In progress after API contract review.",
     }
+
+
 @pytest.mark.django_db
 def test_delete_task(task: Task) -> None:
     response = client.delete(f"/tasks/{task.id}")

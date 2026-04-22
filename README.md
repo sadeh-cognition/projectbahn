@@ -26,7 +26,6 @@ uv run mlflow server --backend-store-uri sqlite:///mlflow.db
 Enable tracing before starting Django:
 
 ```bash
-export PROJBAHN_DSPY_MLFLOW_ENABLED=1
 export PROJBAHN_DSPY_MLFLOW_TRACKING_URI=http://127.0.0.1:5000
 export PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME="Projbahn DSPy"
 uv run manage.py runserver 8001
@@ -46,15 +45,7 @@ The mem0 integration is enabled by default in the app runtime and uses:
 Useful settings:
 
 ```bash
-export PROJBAHN_MEM0_ENABLED=1
-export PROJBAHN_MEM0_LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1
-export PROJBAHN_MEM0_CHROMA_PATH=.mem0_chroma
-export PROJBAHN_MEM0_COLLECTION_NAME=projectbahn
-export PROJBAHN_MEM0_EMBEDDER_MODEL=nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.f16.gguf
+export PROJBAHN_MEM0_EMBEDDER_MODEL=text-embedding-qwen3-embedding-0.6b
 ```
 
-If your LM Studio server uses a specific chat model for mem0 extraction, set it as well:
-
-```bash
-export PROJBAHN_MEM0_LLM_MODEL=your-loaded-chat-model
-```
+Mem0 uses each project's configured LLM name for its extraction model.

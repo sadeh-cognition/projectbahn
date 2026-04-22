@@ -12,6 +12,8 @@ from ninja.testing import TestClient
 import pytest
 from model_bakery import baker
 
+from projbahn import settings as app_settings
+from projbahn.dspy_settings import DSPySettings
 from projects.api import api
 from projects.feature_chat import (
     build_conversation_history,
@@ -206,20 +208,39 @@ def test_build_stream_lm_kwargs_omits_dspy_cache_flag(feature: Feature) -> None:
     assert kwargs["cache"] is False
 
 
-def test_mlflow_tracing_enabled_requires_flag_and_tracking_uri(settings) -> None:
-    settings.PROJBAHN_DSPY_MLFLOW_ENABLED = False
-    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+def test_mlflow_tracing_enabled_requires_flag_and_tracking_uri(monkeypatch) -> None:
+    monkeypatch.setattr(
+        app_settings,
+        "dspy_settings",
+        DSPySettings(
+        mlflow_enabled=False,
+        mlflow_tracking_uri="http://127.0.0.1:5000",
+        ),
+    )
     assert mlflow_tracing_enabled() is False
 
-    settings.PROJBAHN_DSPY_MLFLOW_ENABLED = True
-    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "   "
+    monkeypatch.setattr(
+        app_settings,
+        "dspy_settings",
+        DSPySettings(
+            mlflow_enabled=True,
+            mlflow_tracking_uri="   ",
+        ),
+    )
     assert mlflow_tracing_enabled() is False
 
-    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+    monkeypatch.setattr(
+        app_settings,
+        "dspy_settings",
+        DSPySettings(
+            mlflow_enabled=True,
+            mlflow_tracking_uri="http://127.0.0.1:5000",
+        ),
+    )
     assert mlflow_tracing_enabled() is True
 
 
-def test_configure_dspy_mlflow_sets_tracking_uri_experiment_and_autolog_once(settings) -> None:
+def test_configure_dspy_mlflow_sets_tracking_uri_experiment_and_autolog_once(monkeypatch) -> None:
     class FakeDSPyAutolog:
         def __init__(self) -> None:
             self.calls = 0
@@ -239,9 +260,15 @@ def test_configure_dspy_mlflow_sets_tracking_uri_experiment_and_autolog_once(set
         def set_experiment(self, value: str) -> None:
             self.experiments.append(value)
 
-    settings.PROJBAHN_DSPY_MLFLOW_ENABLED = True
-    settings.PROJBAHN_DSPY_MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
-    settings.PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME = "Projbahn DSPy"
+    monkeypatch.setattr(
+        app_settings,
+        "dspy_settings",
+        DSPySettings(
+            mlflow_enabled=True,
+            mlflow_tracking_uri="http://127.0.0.1:5000",
+            mlflow_experiment_name="Projbahn DSPy",
+        ),
+    )
     fake_mlflow = FakeMLflow()
 
     assert configure_dspy_mlflow(mlflow_module=fake_mlflow) is True

@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from django.conf import settings
-from django.utils.module_loading import import_string
-
-from projects.models import Feature, Project, Task
+from projbahn import settings as app_settings
+from projects.models import Feature, Project, ProjectLLMConfig, Task
 
 
 class ProjectMemoryError(RuntimeError):
@@ -35,30 +33,9 @@ class StoredProjectMemory:
     score: float | None = None
 
 
-class DisabledProjectMemoryStore:
-    def sync_feature(self, *, feature: Feature) -> None:
-        del feature
-
-    def sync_task(self, *, task: Task) -> None:
-        del task
-
-    def delete_feature(self, *, feature: Feature) -> None:
-        del feature
-
-    def delete_task(self, *, task: Task) -> None:
-        del task
-
-    def delete_project(self, *, project: Project) -> None:
-        del project
-
-    def build_feature_chat_context(self, *, feature: Feature, user_message: str) -> str:
-        del feature, user_message
-        return ""
-
-
 class Mem0ProjectMemoryStore:
     def __init__(self, memory_client: object | None = None) -> None:
-        self._memory_client = memory_client or self._build_memory_client()
+        self._memory_client = memory_client
 
     def sync_feature(self, *, feature: Feature) -> None:
         self._replace_entity_memory(
@@ -71,6 +48,7 @@ class Mem0ProjectMemoryStore:
                 "entity_type": "feature",
                 "entity_id": feature.id,
             },
+            memory_client=self._get_memory_client(project=feature.project),
         )
 
     def sync_task(self, *, task: Task) -> None:
@@ -85,6 +63,7 @@ class Mem0ProjectMemoryStore:
                 "entity_id": task.id,
                 "feature_id": task.feature_id,
             },
+            memory_client=self._get_memory_client(project=task.feature.project),
         )
 
     def delete_feature(self, *, feature: Feature) -> None:
@@ -92,6 +71,7 @@ class Mem0ProjectMemoryStore:
             project=feature.project,
             entity_type="feature",
             entity_id=feature.id,
+            memory_client=self._get_memory_client(project=feature.project),
         )
 
     def delete_task(self, *, task: Task) -> None:
@@ -99,20 +79,23 @@ class Mem0ProjectMemoryStore:
             project=task.feature.project,
             entity_type="task",
             entity_id=task.id,
+            memory_client=self._get_memory_client(project=task.feature.project),
         )
 
     def delete_project(self, *, project: Project) -> None:
-        self._memory_client.delete_all(
-            user_id=settings.PROJBAHN_MEM0_USER_SCOPE,
+        self._get_memory_client(project=project).delete_all(
+            user_id=app_settings.mem0_settings.user_scope,
             agent_id=_build_project_agent_id(project.id),
         )
 
     def build_feature_chat_context(self, *, feature: Feature, user_message: str) -> str:
+        memory_client = self._get_memory_client(project=feature.project)
         relevant_memories = self._search_project_memories(
             project=feature.project,
             query=f"{feature.name}\n{feature.description}\n{user_message}",
+            memory_client=memory_client,
         )
-        all_memories = self._list_project_memories(project=feature.project)
+        all_memories = self._list_project_memories(project=feature.project, memory_client=memory_client)
         seen_memory_texts: set[str] = set()
         sections: list[str] = []
 
@@ -141,15 +124,18 @@ class Mem0ProjectMemoryStore:
 
         return "\n\n".join(sections)
 
-    def _build_memory_client(self) -> object:
+    def _build_memory_client(self, *, project: Project) -> object:
         try:
             from mem0 import Memory
         except ImportError as exc:
-            raise ProjectMemoryError(
-                "mem0 is enabled but the mem0ai package is not installed."
-            ) from exc
+            raise ProjectMemoryError("The mem0ai package is not installed.") from exc
 
-        return Memory.from_config(_build_mem0_config())
+        return Memory.from_config(_build_mem0_config(project=project))
+
+    def _get_memory_client(self, *, project: Project) -> object:
+        if self._memory_client is not None:
+            return self._memory_client
+        return self._build_memory_client(project=project)
 
     def _replace_entity_memory(
         self,
@@ -159,15 +145,17 @@ class Mem0ProjectMemoryStore:
         entity_id: int,
         memory_text: str,
         metadata: dict[str, Any],
+        memory_client: object,
     ) -> None:
         self._delete_entity_memories(
             project=project,
             entity_type=entity_type,
             entity_id=entity_id,
+            memory_client=memory_client,
         )
-        self._memory_client.add(
+        memory_client.add(
             memory_text,
-            user_id=settings.PROJBAHN_MEM0_USER_SCOPE,
+            user_id=app_settings.mem0_settings.user_scope,
             agent_id=_build_project_agent_id(project.id),
             metadata=metadata,
             infer=False,
@@ -179,44 +167,42 @@ class Mem0ProjectMemoryStore:
         project: Project,
         entity_type: str,
         entity_id: int,
+        memory_client: object,
     ) -> None:
         existing_memories = [
             memory
-            for memory in self._list_project_memories(project=project)
+            for memory in self._list_project_memories(project=project, memory_client=memory_client)
             if memory.metadata.get("entity_type") == entity_type
             and memory.metadata.get("entity_id") == entity_id
         ]
         for memory in existing_memories:
             if memory.memory_id is None:
                 continue
-            self._memory_client.delete(memory.memory_id)
+            memory_client.delete(memory.memory_id)
 
-    def _list_project_memories(self, *, project: Project) -> list[StoredProjectMemory]:
-        result = self._memory_client.get_all(
+    def _list_project_memories(
+        self, *, project: Project, memory_client: object
+    ) -> list[StoredProjectMemory]:
+        result = memory_client.get_all(
             filters=_build_project_filters(project_id=project.id),
-            top_k=settings.PROJBAHN_MEM0_LIST_LIMIT,
+            top_k=app_settings.mem0_settings.list_limit,
         )
         return _normalize_memories(result)
 
-    def _search_project_memories(self, *, project: Project, query: str) -> list[StoredProjectMemory]:
-        result = self._memory_client.search(
+    def _search_project_memories(
+        self, *, project: Project, query: str, memory_client: object
+    ) -> list[StoredProjectMemory]:
+        result = memory_client.search(
             query,
             filters=_build_project_filters(project_id=project.id),
-            top_k=settings.PROJBAHN_MEM0_SEARCH_LIMIT,
+            top_k=app_settings.mem0_settings.search_limit,
             threshold=0.0,
         )
         return _normalize_memories(result)
 
 
 def get_project_memory_store() -> ProjectMemoryStore:
-    if not settings.PROJBAHN_MEM0_ENABLED:
-        return DisabledProjectMemoryStore()
-
-    store_class = import_string(settings.PROJBAHN_MEM0_STORE_CLASS)
-    store = store_class()
-    if not isinstance(store, DisabledProjectMemoryStore) and not hasattr(store, "build_feature_chat_context"):
-        raise ProjectMemoryError("Configured project memory store does not implement the required interface.")
-    return store
+    return Mem0ProjectMemoryStore()
 
 
 def sync_feature_memory(*, feature: Feature) -> None:
@@ -253,39 +239,39 @@ def _build_project_agent_id(project_id: int) -> str:
 def _build_project_filters(*, project_id: int) -> dict[str, Any]:
     return {
         "AND": [
-            {"user_id": settings.PROJBAHN_MEM0_USER_SCOPE},
+            {"user_id": app_settings.mem0_settings.user_scope},
             {"agent_id": _build_project_agent_id(project_id)},
         ]
     }
 
 
-def _build_mem0_config() -> dict[str, Any]:
+def _build_mem0_config(*, project: Project) -> dict[str, Any]:
     llm_config: dict[str, Any] = {
         "provider": "lmstudio",
         "config": {
-            "lmstudio_base_url": settings.PROJBAHN_MEM0_LMSTUDIO_BASE_URL,
+            "lmstudio_base_url": app_settings.mem0_settings.lmstudio_base_url,
             "temperature": 0.0,
         },
     }
-    if settings.PROJBAHN_MEM0_LLM_MODEL:
-        llm_config["config"]["model"] = settings.PROJBAHN_MEM0_LLM_MODEL
+    project_llm_config = ProjectLLMConfig.get_for_project(project)
+    if project_llm_config is not None and project_llm_config.llm_name:
+        llm_config["config"]["model"] = project_llm_config.llm_name
 
     embedder_config: dict[str, Any] = {
         "provider": "lmstudio",
         "config": {
-            "lmstudio_base_url": settings.PROJBAHN_MEM0_LMSTUDIO_BASE_URL,
-            "embedding_dims": settings.PROJBAHN_MEM0_EMBEDDING_DIMS,
+            "lmstudio_base_url": app_settings.mem0_settings.lmstudio_base_url,
+            "model": app_settings.mem0_settings.embedder_model,
+            "embedding_dims": app_settings.mem0_settings.embedding_dims,
         },
     }
-    if settings.PROJBAHN_MEM0_EMBEDDER_MODEL:
-        embedder_config["config"]["model"] = settings.PROJBAHN_MEM0_EMBEDDER_MODEL
 
     return {
         "vector_store": {
             "provider": "chroma",
             "config": {
-                "collection_name": settings.PROJBAHN_MEM0_COLLECTION_NAME,
-                "path": settings.PROJBAHN_MEM0_CHROMA_PATH,
+                "collection_name": app_settings.mem0_settings.collection_name,
+                "path": app_settings.mem0_settings.chroma_path,
             },
         },
         "llm": llm_config,
