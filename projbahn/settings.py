@@ -141,6 +141,38 @@ PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME = os.environ.get(
     "PROJBAHN_DSPY_MLFLOW_EXPERIMENT_NAME",
     "Projbahn DSPy",
 )
+PROJBAHN_MEM0_ENABLED = _env_flag("PROJBAHN_MEM0_ENABLED", default=True)
+PROJBAHN_MEM0_STORE_CLASS = os.environ.get(
+    "PROJBAHN_MEM0_STORE_CLASS",
+    "projects.project_memory.Mem0ProjectMemoryStore",
+)
+PROJBAHN_MEM0_CHROMA_PATH = os.environ.get(
+    "PROJBAHN_MEM0_CHROMA_PATH",
+    str(BASE_DIR / ".mem0_chroma"),
+)
+PROJBAHN_MEM0_COLLECTION_NAME = os.environ.get(
+    "PROJBAHN_MEM0_COLLECTION_NAME",
+    "projectbahn",
+)
+PROJBAHN_MEM0_USER_SCOPE = os.environ.get(
+    "PROJBAHN_MEM0_USER_SCOPE",
+    "projectbahn",
+)
+PROJBAHN_MEM0_LMSTUDIO_BASE_URL = os.environ.get(
+    "PROJBAHN_MEM0_LMSTUDIO_BASE_URL",
+    "http://127.0.0.1:1234/v1",
+)
+PROJBAHN_MEM0_LLM_MODEL = os.environ.get(
+    "PROJBAHN_MEM0_LLM_MODEL",
+    "",
+)
+PROJBAHN_MEM0_EMBEDDER_MODEL = os.environ.get(
+    "PROJBAHN_MEM0_EMBEDDER_MODEL",
+    "",
+)
+PROJBAHN_MEM0_EMBEDDING_DIMS = int(os.environ.get("PROJBAHN_MEM0_EMBEDDING_DIMS", "1536"))
+PROJBAHN_MEM0_SEARCH_LIMIT = int(os.environ.get("PROJBAHN_MEM0_SEARCH_LIMIT", "8"))
+PROJBAHN_MEM0_LIST_LIMIT = int(os.environ.get("PROJBAHN_MEM0_LIST_LIMIT", "500"))
 
 LOGGING = {
     'version': 1,

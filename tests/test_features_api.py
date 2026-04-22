@@ -12,6 +12,7 @@ from projects.schemas import (
     FeatureResponseSchema,
     FeatureUpdateSchema,
 )
+from tests.mem0_backends import RecordingProjectMemoryStore
 
 client = TestClient(api)
 
@@ -71,6 +72,31 @@ def test_create_feature(project: Project, parent_feature: Feature) -> None:
         event_type=EventLog.EventType.CREATED,
     )
     assert event_log.event_details == {}
+
+
+@pytest.mark.django_db
+def test_create_feature_saves_memory_when_mem0_is_enabled(settings, project: Project) -> None:
+    settings.PROJBAHN_MEM0_ENABLED = True
+    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
+    RecordingProjectMemoryStore.reset()
+
+    response = client.post(
+        "/features",
+        json={
+            "project_id": project.id,
+            "parent_feature_id": "",
+            "name": "Password Reset",
+            "description": "Allow users to reset forgotten passwords.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = FeatureResponseSchema.model_validate(response.json())
+    assert RecordingProjectMemoryStore.synced_features[-1] == {
+        "project_id": project.id,
+        "feature_id": body.id,
+        "memory": f"feature:{body.id}:Password Reset:Allow users to reset forgotten passwords.",
+    }
 
 
 @pytest.mark.django_db
@@ -147,6 +173,33 @@ def test_update_feature(feature: Feature, other_project: Project) -> None:
             "old": "Allow sign in with external providers",
             "new": payload.description,
         },
+    }
+
+
+@pytest.mark.django_db
+def test_update_feature_refreshes_memory_when_mem0_is_enabled(
+    settings,
+    feature: Feature,
+) -> None:
+    settings.PROJBAHN_MEM0_ENABLED = True
+    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
+    RecordingProjectMemoryStore.reset()
+
+    response = client.put(
+        f"/features/{feature.id}",
+        json={
+            "project_id": feature.project_id,
+            "parent_feature_id": "",
+            "name": "Refined Auth",
+            "description": "Updated auth behavior",
+        },
+    )
+
+    assert response.status_code == 200
+    assert RecordingProjectMemoryStore.synced_features[-1] == {
+        "project_id": feature.project_id,
+        "feature_id": feature.id,
+        "memory": f"feature:{feature.id}:Refined Auth:Updated auth behavior",
     }
 
 

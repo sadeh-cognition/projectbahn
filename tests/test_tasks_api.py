@@ -10,6 +10,7 @@ from model_bakery import baker
 from projects.api import api
 from projects.models import EventLog, Feature, Project, Task
 from projects.schemas import TaskCreateSchema, TaskResponseSchema, TaskUpdateSchema
+from tests.mem0_backends import RecordingProjectMemoryStore
 
 client = TestClient(api)
 User = get_user_model()
@@ -86,6 +87,32 @@ def test_create_task(feature: Feature, user) -> None:
 
 
 @pytest.mark.django_db
+def test_create_task_saves_memory_when_mem0_is_enabled(settings, feature: Feature, user) -> None:
+    settings.PROJBAHN_MEM0_ENABLED = True
+    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
+    RecordingProjectMemoryStore.reset()
+
+    response = client.post(
+        "/tasks",
+        json={
+            "feature_id": feature.id,
+            "user_id": user.id,
+            "title": "Handle rollout plan",
+            "description": "Document scope and rollout order.",
+            "status": "Blocked by deployment freeze.",
+        },
+    )
+
+    assert response.status_code == 200
+    body = TaskResponseSchema.model_validate(response.json())
+    assert RecordingProjectMemoryStore.synced_tasks[-1] == {
+        "project_id": feature.project_id,
+        "task_id": body.id,
+        "memory": f"task:{body.id}:Handle rollout plan:Blocked by deployment freeze.",
+    }
+
+
+@pytest.mark.django_db
 def test_list_tasks(task: Task) -> None:
     response = client.get("/tasks")
 
@@ -151,6 +178,29 @@ def test_update_task(task: Task, feature: Feature, other_user) -> None:
     }
 
 
+@pytest.mark.django_db
+def test_update_task_refreshes_memory_when_mem0_is_enabled(settings, task: Task, feature: Feature, other_user) -> None:
+    settings.PROJBAHN_MEM0_ENABLED = True
+    settings.PROJBAHN_MEM0_STORE_CLASS = "tests.mem0_backends.RecordingProjectMemoryStore"
+    RecordingProjectMemoryStore.reset()
+
+    response = client.put(
+        f"/tasks/{task.id}",
+        json={
+            "feature_id": feature.id,
+            "user_id": other_user.id,
+            "title": "Ship UI wiring",
+            "description": "Connect the page to the API.",
+            "status": "In progress after API contract review.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert RecordingProjectMemoryStore.synced_tasks[-1] == {
+        "project_id": feature.project_id,
+        "task_id": task.id,
+        "memory": f"task:{task.id}:Ship UI wiring:In progress after API contract review.",
+    }
 @pytest.mark.django_db
 def test_delete_task(task: Task) -> None:
     response = client.delete(f"/tasks/{task.id}")

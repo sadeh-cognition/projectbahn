@@ -23,6 +23,14 @@ from projects.feature_chat import (
     serialize_thread,
 )
 from projects.models import EventLog, Feature, FeatureChatThread, Project, ProjectLLMConfig, Task
+from projects.project_memory import (
+    ProjectMemoryError,
+    delete_feature_memory,
+    delete_project_memories,
+    delete_task_memory,
+    sync_feature_memory,
+    sync_task_memory,
+)
 from projects.schemas import (
     FeatureChatMessageResponseSchema,
     EventLogPageResponseSchema,
@@ -353,6 +361,10 @@ def delete_project(request: HttpRequest, project_id: int) -> Status[None]:
     feature_ids = list(Feature.get_ids_for_project(deleted_project_id))
     task_ids = list(Task.get_ids_for_project(deleted_project_id))
     with transaction.atomic():
+        try:
+            delete_project_memories(project=project)
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
         project.delete()
         EventLog.bulk_create_logs(
             [
@@ -392,6 +404,10 @@ def create_feature(
             entity_id=feature.id,
             event_type=EventLog.EventType.CREATED,
         )
+        try:
+            sync_feature_memory(feature=feature)
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
     return _serialize_feature(feature)
 
 
@@ -429,6 +445,10 @@ def update_feature(
             event_type=EventLog.EventType.MODIFIED,
             event_details=event_details,
         )
+        try:
+            sync_feature_memory(feature=feature)
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
     return _serialize_feature(feature)
 
 
@@ -436,10 +456,25 @@ def update_feature(
 def delete_feature(request: HttpRequest, feature_id: int) -> Status[None]:
     feature = Feature.get_by_id_or_404(feature_id)
     deleted_feature_id = feature.id
+    tasks_to_delete = list(_tasks_queryset().filter(feature_id=deleted_feature_id))
     task_ids = list(Task.get_ids_for_feature(deleted_feature_id))
-    child_feature_ids = list(Feature.get_ids_for_parent_feature(deleted_feature_id))
+    child_features = list(
+        Feature.get_features_for_project_with_relations(feature.project_id).filter(parent_feature_id=deleted_feature_id)
+    )
+    child_feature_ids = [child_feature.id for child_feature in child_features]
     with transaction.atomic():
+        try:
+            for task in tasks_to_delete:
+                delete_task_memory(task=task)
+            delete_feature_memory(feature=feature)
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
         feature.delete()
+        try:
+            for child_feature_id in child_feature_ids:
+                sync_feature_memory(feature=Feature.get_by_id_with_project_or_404(child_feature_id))
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
         EventLog.bulk_create_logs(
             [
                 *[
@@ -521,6 +556,10 @@ def create_task(
             entity_id=task.id,
             event_type=EventLog.EventType.CREATED,
         )
+        try:
+            sync_task_memory(task=_tasks_queryset().get(id=task.id))
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
     return _serialize_task(_tasks_queryset().get(id=task.id))
 
 
@@ -560,14 +599,22 @@ def update_task(
             event_type=EventLog.EventType.MODIFIED,
             event_details=event_details,
         )
+        try:
+            sync_task_memory(task=_tasks_queryset().get(id=task.id))
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
     return _serialize_task(_tasks_queryset().get(id=task.id))
 
 
 @api.delete("/tasks/{task_id}", response={204: None})
 def delete_task(request: HttpRequest, task_id: int) -> Status[None]:
-    task = Task.get_by_id_or_404(task_id)
+    task = Task.get_by_id_with_relations_or_404(task_id)
     deleted_task_id = task.id
     with transaction.atomic():
+        try:
+            delete_task_memory(task=task)
+        except ProjectMemoryError as exc:
+            raise HttpError(503, str(exc)) from exc
         task.delete()
         _create_event_log(
             entity_type=EventLog.EntityType.TASK,
@@ -625,6 +672,8 @@ def stream_feature_chat_message(
             text=payload.text,
             user=user,
         )
+    except ProjectMemoryError as exc:
+        raise HttpError(503, str(exc)) from exc
     except FeatureChatConfigurationError as exc:
         raise HttpError(400, str(exc)) from exc
 
