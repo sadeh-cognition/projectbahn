@@ -225,7 +225,7 @@ def delete_project_memories(*, project: Project) -> None:
     get_project_memory_store().delete_project(project=project)
 
 
-def build_feature_chat_memory_context(*, feature: Feature, user_message: str) -> str:
+def build_feature_chat_project_context(*, feature: Feature, user_message: str) -> str:
     return get_project_memory_store().build_feature_chat_context(
         feature=feature,
         user_message=user_message,

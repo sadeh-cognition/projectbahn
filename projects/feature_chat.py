@@ -11,7 +11,7 @@ from projects.models import (
     FeatureChatThread,
     ProjectLLMConfig,
 )
-from projects.project_memory import build_feature_chat_memory_context
+from projects.project_memory import build_feature_chat_project_context
 
 
 class FeatureChatConfigurationError(ValueError):
@@ -25,7 +25,7 @@ class FeatureChatSignature(dspy.Signature):
     project_description: str = dspy.InputField()
     feature_name: str = dspy.InputField()
     feature_description: str = dspy.InputField()
-    project_memory_context: str = dspy.InputField()
+    project_context: str = dspy.InputField()
     conversation_history: dspy.History = dspy.InputField()
     user_message: str = dspy.InputField()
     assistant_reply: str = dspy.OutputField()
@@ -43,7 +43,7 @@ class FeatureChatModule(dspy.Module):
         project_description: str,
         feature_name: str,
         feature_description: str,
-        project_memory_context: str,
+        project_context: str,
         conversation_history: dspy.History,
         user_message: str,
     ) -> dspy.Prediction:
@@ -52,7 +52,7 @@ class FeatureChatModule(dspy.Module):
             project_description=project_description,
             feature_name=feature_name,
             feature_description=feature_description,
-            project_memory_context=project_memory_context,
+            project_context=project_context,
             conversation_history=conversation_history,
             user_message=user_message,
         )
@@ -133,7 +133,7 @@ def build_stream_lm_kwargs(config: ProjectLLMConfig) -> dict[str, Any]:
 def build_feature_chat_module_inputs(
     *,
     thread: FeatureChatThread,
-    project_memory_context: str,
+    project_context: str,
     conversation_history: dspy.History,
     user_message: str,
 ) -> dict[str, Any]:
@@ -142,7 +142,7 @@ def build_feature_chat_module_inputs(
         "project_description": thread.feature.project.description,
         "feature_name": thread.feature.name,
         "feature_description": thread.feature.description,
-        "project_memory_context": project_memory_context,
+        "project_context": project_context,
         "conversation_history": conversation_history,
         "user_message": user_message,
     }
@@ -153,7 +153,7 @@ def prepare_feature_chat_request(
     thread: FeatureChatThread,
     text: str,
     user: object,
-    project_memory_context: str | None = None,
+    project_context: str | None = None,
 ) -> tuple[str, ProjectLLMConfig, dict[str, Any]]:
     del user
     cleaned_text = text.strip()
@@ -163,9 +163,9 @@ def prepare_feature_chat_request(
     config = thread.feature.project.get_project_llm_config()
     module_inputs = build_feature_chat_module_inputs(
         thread=thread,
-        project_memory_context=project_memory_context
-        if project_memory_context is not None
-        else build_feature_chat_memory_context(
+        project_context=project_context
+        if project_context is not None
+        else build_feature_chat_project_context(
             feature=thread.feature,
             user_message=cleaned_text,
         ),
@@ -243,7 +243,7 @@ def generate_feature_chat_reply(
             project_description=thread.feature.project.description,
             feature_name=thread.feature.name,
             feature_description=thread.feature.description,
-            project_memory_context=build_feature_chat_memory_context(
+            project_context=build_feature_chat_project_context(
                 feature=thread.feature,
                 user_message=cleaned_text,
             ),

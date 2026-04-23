@@ -311,7 +311,7 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
 
     module_inputs = build_feature_chat_module_inputs(
         thread=thread,
-        project_memory_context="All saved project features/tasks from mem0:\n- Feature #1",
+        project_context="All saved project features/tasks from mem0:\n- Feature #1",
         conversation_history=dspy.History(
             messages=[{"user_message": "What exists already?", "assistant_reply": "Existing guidance"}]
         ),
@@ -323,7 +323,7 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
         "project_description": "Core platform",
         "feature_name": "Authentication",
         "feature_description": "Authentication feature",
-        "project_memory_context": "All saved project features/tasks from mem0:\n- Feature #1",
+        "project_context": "All saved project features/tasks from mem0:\n- Feature #1",
         "conversation_history": dspy.History(
             messages=[{"user_message": "What exists already?", "assistant_reply": "Existing guidance"}]
         ),
@@ -388,7 +388,7 @@ def test_prepare_feature_chat_request_builds_dspy_module_inputs_without_persisti
         thread=thread,
         text="How should we build login?",
         user=user,
-        project_memory_context="All saved project features/tasks from mem0:\n- Feature #1",
+        project_context="All saved project features/tasks from mem0:\n- Feature #1",
     )
 
     assert user_text == "How should we build login?"
@@ -397,7 +397,7 @@ def test_prepare_feature_chat_request_builds_dspy_module_inputs_without_persisti
     assert module_inputs["project_description"] == "Core platform"
     assert module_inputs["feature_name"] == "Authentication"
     assert module_inputs["feature_description"] == "Authentication feature"
-    assert module_inputs["project_memory_context"] == "All saved project features/tasks from mem0:\n- Feature #1"
+    assert module_inputs["project_context"] == "All saved project features/tasks from mem0:\n- Feature #1"
     assert module_inputs["conversation_history"] == dspy.History(
         messages=[{"user_message": "", "assistant_reply": "Existing guidance"}]
     )
