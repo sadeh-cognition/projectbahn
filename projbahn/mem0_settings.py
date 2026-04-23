@@ -20,5 +20,7 @@ class Mem0Settings(BaseSettings):
     lmstudio_base_url: str = Field(default="http://127.0.0.1:1234/v1")
     embedder_model: str
     embedding_dims: int = Field(default=1536)
+    verify_lmstudio_on_startup: bool = Field(default=True)
+    startup_timeout_seconds: int = Field(default=30)
     search_limit: int = Field(default=8)
     list_limit: int = Field(default=500)
