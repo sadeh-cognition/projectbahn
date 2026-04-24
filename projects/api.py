@@ -679,7 +679,11 @@ def stream_feature_chat_message(
 
     def event_stream() -> Any:
         assistant_chunks: list[str] = []
-        for chunk in iter_feature_chat_response_text(config=config, module_inputs=module_inputs):
+        for chunk in iter_feature_chat_response_text(
+            feature=thread.feature,
+            config=config,
+            module_inputs=module_inputs,
+        ):
             assistant_chunks.append(chunk)
             yield json.dumps({"type": "chunk", "text": chunk}) + "\n"
 

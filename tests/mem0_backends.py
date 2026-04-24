@@ -13,6 +13,7 @@ class RecordingProjectMemoryStore:
     deleted_tasks: ClassVar[list[int]] = []
     deleted_projects: ClassVar[list[int]] = []
     project_memories: ClassVar[dict[int, list[str]]] = defaultdict(list)
+    project_memory_entries: ClassVar[dict[int, list[dict[str, Any]]]] = defaultdict(list)
 
     @classmethod
     def reset(cls) -> None:
@@ -22,6 +23,7 @@ class RecordingProjectMemoryStore:
         cls.deleted_tasks = []
         cls.deleted_projects = []
         cls.project_memories = defaultdict(list)
+        cls.project_memory_entries = defaultdict(list)
 
     def sync_feature(self, *, feature: Feature) -> None:
         memory_text = f"feature:{feature.id}:{feature.name}:{feature.description}"
@@ -36,6 +38,10 @@ class RecordingProjectMemoryStore:
             project_id=feature.project_id,
             prefix=f"feature:{feature.id}:",
             memory_text=memory_text,
+            metadata={
+                "entity_type": "feature",
+                "entity_id": feature.id,
+            },
         )
 
     def sync_task(self, *, task: Task) -> None:
@@ -51,6 +57,11 @@ class RecordingProjectMemoryStore:
             project_id=task.feature.project_id,
             prefix=f"task:{task.id}:",
             memory_text=memory_text,
+            metadata={
+                "entity_type": "task",
+                "entity_id": task.id,
+                "feature_id": task.feature_id,
+            },
         )
 
     def delete_feature(self, *, feature: Feature) -> None:
@@ -74,12 +85,96 @@ class RecordingProjectMemoryStore:
         lines.extend(f"- {memory}" for memory in project_memories)
         return "\n".join(lines)
 
-    def _replace_memory(self, *, project_id: int, prefix: str, memory_text: str) -> None:
+    def search_feature_ids(
+        self,
+        *,
+        project: Project,
+        query: str,
+        limit: int,
+        exclude_feature_id: int | None = None,
+    ) -> list[int]:
+        feature_ids = [
+            entity_id
+            for entity_id in self._search_entity_ids(
+                project_id=project.id,
+                query=query,
+                entity_type="feature",
+                limit=limit + 1 if exclude_feature_id is not None else limit,
+            )
+            if entity_id != exclude_feature_id
+        ]
+        return feature_ids[:limit]
+
+    def search_task_ids(self, *, project: Project, query: str, limit: int) -> list[int]:
+        return self._search_entity_ids(
+            project_id=project.id,
+            query=query,
+            entity_type="task",
+            limit=limit,
+        )
+
+    def _replace_memory(
+        self,
+        *,
+        project_id: int,
+        prefix: str,
+        memory_text: str,
+        metadata: dict[str, Any],
+    ) -> None:
         current = [memory for memory in self.project_memories[project_id] if not memory.startswith(prefix)]
         current.append(memory_text)
         self.project_memories[project_id] = current
+        current_entries = [
+            entry
+            for entry in self.project_memory_entries[project_id]
+            if not entry["memory"].startswith(prefix)
+        ]
+        current_entries.append({"memory": memory_text, "metadata": metadata})
+        self.project_memory_entries[project_id] = current_entries
 
     def _delete_memory(self, *, project_id: int, prefix: str) -> None:
         self.project_memories[project_id] = [
             memory for memory in self.project_memories[project_id] if not memory.startswith(prefix)
         ]
+        self.project_memory_entries[project_id] = [
+            entry
+            for entry in self.project_memory_entries[project_id]
+            if not entry["memory"].startswith(prefix)
+        ]
+
+    def _search_entity_ids(
+        self,
+        *,
+        project_id: int,
+        query: str,
+        entity_type: str,
+        limit: int,
+    ) -> list[int]:
+        if limit <= 0:
+            return []
+
+        lowered_query = query.strip().lower()
+        if not lowered_query:
+            return []
+
+        ranked_entries: list[tuple[int, int]] = []
+        for index, entry in enumerate(self.project_memory_entries.get(project_id, [])):
+            metadata = entry["metadata"]
+            if metadata.get("entity_type") != entity_type:
+                continue
+            memory_text = str(entry["memory"]).lower()
+            score = memory_text.count(lowered_query)
+            if score == 0:
+                score = sum(1 for part in lowered_query.split() if part and part in memory_text)
+            if score == 0:
+                continue
+            ranked_entries.append((score, index))
+
+        ranked_entries.sort(key=lambda item: (-item[0], item[1]))
+
+        entity_ids: list[int] = []
+        for _, index in ranked_entries[:limit]:
+            entity_id = self.project_memory_entries[project_id][index]["metadata"].get("entity_id")
+            if isinstance(entity_id, int):
+                entity_ids.append(entity_id)
+        return entity_ids

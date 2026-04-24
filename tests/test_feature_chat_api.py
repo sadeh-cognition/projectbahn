@@ -16,18 +16,21 @@ from projbahn import settings as app_settings
 from projbahn.dspy_settings import DSPySettings
 from projects.api import api
 from projects.feature_chat import (
+    FeatureChatModule,
+    FeatureChatProjectTools,
     build_conversation_history,
     build_feature_chat_module_inputs,
     build_lm_kwargs,
     build_stream_lm_kwargs,
     prepare_feature_chat_request,
 )
-from projects.models import Feature, FeatureChatMessage, FeatureChatThread, Project, ProjectLLMConfig
+from projects.models import Feature, FeatureChatMessage, FeatureChatThread, Project, ProjectLLMConfig, Task
 from projects.observability import (
     configure_dspy_mlflow,
     mlflow_tracing_enabled,
     reset_dspy_mlflow_state,
 )
+from projects.project_memory import sync_feature_memory, sync_task_memory
 from projects.schemas import FeatureChatThreadDetailSchema, FeatureChatThreadResponseSchema
 
 client = TestClient(api)
@@ -329,6 +332,128 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
         ),
         "user_message": "How should we build login?",
     }
+
+
+@pytest.mark.django_db
+def test_feature_chat_project_tools_search_other_features_returns_same_project_matches(
+    feature: Feature,
+) -> None:
+    related_feature = baker.make(
+        Feature,
+        project=feature.project,
+        parent_feature=feature,
+        name="Authorization",
+        description="Role and permission management",
+    )
+    baker.make(
+        Feature,
+        project=baker.make(Project),
+        parent_feature=None,
+        name="Billing",
+        description="Stripe billing flows",
+    )
+    sync_feature_memory(feature=related_feature)
+    tools = FeatureChatProjectTools(feature=feature)
+
+    result = tools.search_other_features(query="role")
+
+    assert "Other project features:" in result
+    assert f"Feature {related_feature.id}: Authorization" in result
+    assert "Authentication feature" not in result
+    assert "Billing" not in result
+
+
+@pytest.mark.django_db
+def test_feature_chat_project_tools_search_other_features_uses_mem0_results(
+    feature: Feature,
+) -> None:
+    baker.make(
+        Feature,
+        project=feature.project,
+        parent_feature=feature,
+        name="Authorization",
+        description="Role and permission management",
+    )
+    tools = FeatureChatProjectTools(feature=feature)
+
+    result = tools.search_other_features(query="role")
+
+    assert result == "No other features matched 'role' in this project."
+
+
+@pytest.mark.django_db
+def test_feature_chat_project_tools_search_project_tasks_filters_to_current_project(
+    feature: Feature,
+    user: User,
+) -> None:
+    related_feature = baker.make(
+        Feature,
+        project=feature.project,
+        parent_feature=None,
+        name="Authorization",
+        description="Role and permission management",
+    )
+    matching_task = baker.make(
+        Task,
+        feature=related_feature,
+        user=user,
+        title="Implement RBAC",
+        description="Add role checks to endpoints",
+        status="in_progress",
+    )
+    baker.make(
+        Task,
+        feature=baker.make(Feature, project=baker.make(Project)),
+        user=user,
+        title="Implement RBAC elsewhere",
+        description="Should not appear",
+        status="todo",
+    )
+    sync_task_memory(task=matching_task)
+    tools = FeatureChatProjectTools(feature=feature)
+
+    result = tools.search_project_tasks(query="RBAC", status="progress")
+
+    assert "Project tasks:" in result
+    assert f"Task {matching_task.id}: Implement RBAC" in result
+    assert "feature=Authorization" in result
+    assert "Implement RBAC elsewhere" not in result
+
+
+@pytest.mark.django_db
+def test_feature_chat_project_tools_search_project_tasks_uses_mem0_results(
+    feature: Feature,
+    user: User,
+) -> None:
+    related_feature = baker.make(
+        Feature,
+        project=feature.project,
+        parent_feature=None,
+        name="Authorization",
+        description="Role and permission management",
+    )
+    baker.make(
+        Task,
+        feature=related_feature,
+        user=user,
+        title="Implement RBAC",
+        description="Add role checks to endpoints",
+        status="in_progress",
+    )
+    tools = FeatureChatProjectTools(feature=feature)
+
+    result = tools.search_project_tasks(query="RBAC", status="progress")
+
+    assert result == "No project tasks matched the supplied filters."
+
+
+@pytest.mark.django_db
+def test_feature_chat_module_uses_dspy_react_with_project_tools(feature: Feature) -> None:
+    module = FeatureChatModule(feature=feature)
+
+    assert isinstance(module.respond, dspy.ReAct)
+    assert module.respond.max_iters == 6
+    assert set(module.respond.tools) == {"search_other_features", "search_project_tasks", "finish"}
 
 
 @pytest.mark.django_db

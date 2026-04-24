@@ -24,6 +24,23 @@ class ProjectMemoryStore(Protocol):
 
     def build_feature_chat_context(self, *, feature: Feature, user_message: str) -> str: ...
 
+    def search_feature_ids(
+        self,
+        *,
+        project: Project,
+        query: str,
+        limit: int,
+        exclude_feature_id: int | None = None,
+    ) -> list[int]: ...
+
+    def search_task_ids(
+        self,
+        *,
+        project: Project,
+        query: str,
+        limit: int,
+    ) -> list[int]: ...
+
 
 @dataclass(slots=True)
 class StoredProjectMemory:
@@ -124,6 +141,40 @@ class Mem0ProjectMemoryStore:
 
         return "\n\n".join(sections)
 
+    def search_feature_ids(
+        self,
+        *,
+        project: Project,
+        query: str,
+        limit: int,
+        exclude_feature_id: int | None = None,
+    ) -> list[int]:
+        feature_ids = [
+            entity_id
+            for entity_id in self._search_entity_ids(
+                project=project,
+                query=query,
+                entity_type="feature",
+                limit=limit + 1 if exclude_feature_id is not None else limit,
+            )
+            if entity_id != exclude_feature_id
+        ]
+        return feature_ids[:limit]
+
+    def search_task_ids(
+        self,
+        *,
+        project: Project,
+        query: str,
+        limit: int,
+    ) -> list[int]:
+        return self._search_entity_ids(
+            project=project,
+            query=query,
+            entity_type="task",
+            limit=limit,
+        )
+
     def _build_memory_client(self, *, project: Project) -> object:
         try:
             from mem0 import Memory
@@ -190,15 +241,55 @@ class Mem0ProjectMemoryStore:
         return _normalize_memories(result)
 
     def _search_project_memories(
-        self, *, project: Project, query: str, memory_client: object
+        self,
+        *,
+        project: Project,
+        query: str,
+        memory_client: object,
+        top_k: int | None = None,
     ) -> list[StoredProjectMemory]:
+        if not query.strip():
+            return []
         result = memory_client.search(
             query,
             filters=_build_project_filters(project_id=project.id),
-            top_k=app_settings.mem0_settings.search_limit,
+            top_k=top_k or app_settings.mem0_settings.search_limit,
             threshold=0.0,
         )
         return _normalize_memories(result)
+
+    def _search_entity_ids(
+        self,
+        *,
+        project: Project,
+        query: str,
+        entity_type: str,
+        limit: int,
+    ) -> list[int]:
+        if limit <= 0:
+            return []
+
+        memory_client = self._get_memory_client(project=project)
+        memories = self._search_project_memories(
+            project=project,
+            query=query,
+            memory_client=memory_client,
+            top_k=max(app_settings.mem0_settings.search_limit, limit * 4),
+        )
+
+        entity_ids: list[int] = []
+        seen_entity_ids: set[int] = set()
+        for memory in memories:
+            if memory.metadata.get("entity_type") != entity_type:
+                continue
+            entity_id = _coerce_optional_int(memory.metadata.get("entity_id"))
+            if entity_id is None or entity_id in seen_entity_ids:
+                continue
+            entity_ids.append(entity_id)
+            seen_entity_ids.add(entity_id)
+            if len(entity_ids) >= limit:
+                break
+        return entity_ids
 
 
 def get_project_memory_store() -> ProjectMemoryStore:
@@ -315,6 +406,16 @@ def _coerce_optional_str(value: Any) -> str | None:
 def _coerce_optional_float(value: Any) -> float | None:
     if isinstance(value, int | float):
         return float(value)
+    return None
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
     return None
 
 

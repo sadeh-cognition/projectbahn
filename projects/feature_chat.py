@@ -10,8 +10,9 @@ from projects.models import (
     FeatureChatMessage,
     FeatureChatThread,
     ProjectLLMConfig,
+    Task,
 )
-from projects.project_memory import build_feature_chat_project_context
+from projects.project_memory import build_feature_chat_project_context, get_project_memory_store
 
 
 class FeatureChatConfigurationError(ValueError):
@@ -19,7 +20,10 @@ class FeatureChatConfigurationError(ValueError):
 
 
 class FeatureChatSignature(dspy.Signature):
-    """Answer questions about a software project feature with concise, implementation-focused guidance."""
+    """Answer questions about a software project feature with concise, implementation-focused guidance.
+
+    Use the available tools to inspect other project features and tasks when the user needs cross-project context.
+    """
 
     project_name: str = dspy.InputField()
     project_description: str = dspy.InputField()
@@ -32,9 +36,17 @@ class FeatureChatSignature(dspy.Signature):
 
 
 class FeatureChatModule(dspy.Module):
-    def __init__(self) -> None:
+    def __init__(self, *, feature: Feature) -> None:
         super().__init__()
-        self.respond = dspy.Predict(FeatureChatSignature)
+        self.project_tools = FeatureChatProjectTools(feature=feature)
+        self.respond = dspy.ReAct(
+            FeatureChatSignature,
+            tools=[
+                self.project_tools.search_other_features,
+                self.project_tools.search_project_tasks,
+            ],
+            max_iters=6,
+        )
 
     def forward(
         self,
@@ -56,6 +68,148 @@ class FeatureChatModule(dspy.Module):
             conversation_history=conversation_history,
             user_message=user_message,
         )
+
+
+class FeatureChatProjectTools:
+    def __init__(self, *, feature: Feature) -> None:
+        self.feature = feature
+        self.memory_store = get_project_memory_store()
+
+    def search_other_features(self, query: str = "", limit: int = 5) -> str:
+        """Search other features in the current project using mem0 similarity search."""
+        cleaned_limit = max(1, min(limit, 10))
+        cleaned_query = query.strip()
+        if cleaned_query:
+            feature_ids = self.memory_store.search_feature_ids(
+                project=self.feature.project,
+                query=cleaned_query,
+                limit=cleaned_limit,
+                exclude_feature_id=self.feature.id,
+            )
+            features = self._get_features_in_order(feature_ids)
+        else:
+            queryset = Feature.get_features_for_project_with_relations(self.feature.project_id).exclude(
+                id=self.feature.id
+            )
+            features = list(queryset.order_by("id")[:cleaned_limit])
+        if not features:
+            if cleaned_query:
+                return f"No other features matched '{cleaned_query}' in this project."
+            return "No other features are available in this project."
+
+        lines = ["Other project features:"]
+        for feature in features:
+            parent = (
+                f", parent_feature_id={feature.parent_feature_id}"
+                if feature.parent_feature_id is not None
+                else ""
+            )
+            lines.append(
+                f"- Feature {feature.id}: {feature.name}{parent}. Description: {feature.description}"
+            )
+        return "\n".join(lines)
+
+    def search_project_tasks(
+        self,
+        query: str = "",
+        feature_name: str = "",
+        status: str = "",
+        assignee: str = "",
+        limit: int = 5,
+    ) -> str:
+        """Search tasks in the current project using mem0 similarity plus structured filters."""
+        cleaned_limit = max(1, min(limit, 10))
+        cleaned_feature_name = feature_name.strip()
+        cleaned_status = status.strip()
+        cleaned_assignee = assignee.strip()
+        search_query = self._build_task_search_query(
+            query=query.strip(),
+            feature_name=cleaned_feature_name,
+            status=cleaned_status,
+            assignee=cleaned_assignee,
+        )
+
+        if search_query:
+            task_ids = self.memory_store.search_task_ids(
+                project=self.feature.project,
+                query=search_query,
+                limit=cleaned_limit,
+            )
+            tasks = self._get_tasks_in_order(
+                task_ids,
+                feature_name=cleaned_feature_name,
+                status=cleaned_status,
+                assignee=cleaned_assignee,
+            )
+        else:
+            queryset = Task.get_base_queryset_with_relations().filter(feature__project_id=self.feature.project_id)
+            tasks = list(queryset.order_by("-date_updated", "-id")[:cleaned_limit])
+        if not tasks:
+            return "No project tasks matched the supplied filters."
+
+        lines = ["Project tasks:"]
+        for task in tasks:
+            lines.append(
+                f"- Task {task.id}: {task.title} [status={task.status}, feature={task.feature.name}, "
+                f"assignee={task.user.get_username()}]. Description: {task.description}"
+            )
+        return "\n".join(lines)
+
+    def _build_task_search_query(
+        self,
+        *,
+        query: str,
+        feature_name: str,
+        status: str,
+        assignee: str,
+    ) -> str:
+        parts: list[str] = []
+        if query:
+            parts.append(query)
+        if feature_name:
+            parts.append(f"Feature: {feature_name}")
+        if status:
+            parts.append(f"Status: {status}")
+        if assignee:
+            parts.append(f"Assignee: {assignee}")
+        return "\n".join(parts)
+
+    def _get_features_in_order(self, feature_ids: list[int]) -> list[Feature]:
+        if not feature_ids:
+            return []
+
+        features_by_id = {
+            feature.id: feature
+            for feature in Feature.get_features_for_project_with_relations(self.feature.project_id)
+            .filter(id__in=feature_ids)
+            .exclude(id=self.feature.id)
+        }
+        return [features_by_id[feature_id] for feature_id in feature_ids if feature_id in features_by_id]
+
+    def _get_tasks_in_order(
+        self,
+        task_ids: list[int],
+        *,
+        feature_name: str,
+        status: str,
+        assignee: str,
+    ) -> list[Task]:
+        if not task_ids:
+            return []
+
+        queryset = Task.get_base_queryset_with_relations().filter(
+            feature__project_id=self.feature.project_id,
+            id__in=task_ids,
+        )
+        if feature_name:
+            queryset = queryset.filter(feature__name__icontains=feature_name)
+        if status:
+            queryset = queryset.filter(status__icontains=status)
+        if assignee:
+            queryset = queryset.filter(user__username__icontains=assignee)
+
+        tasks_by_id = {task.id: task for task in queryset}
+        return [tasks_by_id[task_id] for task_id in task_ids if task_id in tasks_by_id]
 
 
 @dataclass(slots=True)
@@ -176,10 +330,10 @@ def prepare_feature_chat_request(
 
 
 def iter_feature_chat_response_text(
-    *, config: ProjectLLMConfig, module_inputs: dict[str, Any]
+    *, feature: Feature, config: ProjectLLMConfig, module_inputs: dict[str, Any]
 ) -> Iterator[str]:
     lm = dspy.LM(**build_stream_lm_kwargs(config))
-    module = FeatureChatModule()
+    module = FeatureChatModule(feature=feature)
     stream_module = dspy.streamify(
         module,
         stream_listeners=[
@@ -236,7 +390,7 @@ def generate_feature_chat_reply(
         raise FeatureChatConfigurationError("Message text is required.")
     config = thread.feature.project.get_project_llm_config()
     lm = dspy.LM(**build_lm_kwargs(config))
-    module = FeatureChatModule()
+    module = FeatureChatModule(feature=thread.feature)
     with dspy.context(lm=lm):
         prediction = module(
             project_name=thread.feature.project.name,
