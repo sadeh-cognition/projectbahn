@@ -22,7 +22,15 @@ from projects.feature_chat import (
     serialize_message,
     serialize_thread,
 )
-from projects.models import EventLog, Feature, FeatureChatThread, Project, ProjectLLMConfig, Task
+from projects.models import (
+    EventLog,
+    Feature,
+    FeatureChatThread,
+    Project,
+    ProjectCodebaseAgentConfig,
+    ProjectLLMConfig,
+    Task,
+)
 from projects.project_memory import (
     ProjectMemoryError,
     delete_feature_memory,
@@ -42,6 +50,8 @@ from projects.schemas import (
     FeatureCreateSchema,
     FeatureResponseSchema,
     FeatureUpdateSchema,
+    ProjectCodebaseAgentConfigResponseSchema,
+    ProjectCodebaseAgentConfigUpdateSchema,
     ProjectCreateSchema,
     ProjectLLMConfigResponseSchema,
     ProjectLLMConfigUpdateSchema,
@@ -138,6 +148,25 @@ def _serialize_project_llm_config(project: Project) -> ProjectLLMConfigResponseS
         api_key_configured=config.api_key_configured,
         api_key_usable=config.api_key_usable,
         api_key_requires_reentry=config.api_key_requires_reentry,
+        date_created=config.date_created,
+        date_updated=config.date_updated,
+    )
+
+
+def _serialize_project_codebase_agent_config(project: Project) -> ProjectCodebaseAgentConfigResponseSchema:
+    try:
+        config = project.codebase_agent_config
+    except ObjectDoesNotExist:
+        return ProjectCodebaseAgentConfigResponseSchema(
+            project_id=project.id,
+            url="",
+            date_created=project.date_created,
+            date_updated=project.date_updated,
+        )
+
+    return ProjectCodebaseAgentConfigResponseSchema(
+        project_id=project.id,
+        url=config.url,
         date_created=config.date_created,
         date_updated=config.date_updated,
     )
@@ -307,6 +336,15 @@ def get_project_llm_config(request: HttpRequest, project_id: int) -> ProjectLLMC
     return _serialize_project_llm_config(project)
 
 
+@api.get("/projects/{project_id}/codebase-agent-config", response=ProjectCodebaseAgentConfigResponseSchema)
+def get_project_codebase_agent_config(
+    request: HttpRequest,
+    project_id: int,
+) -> ProjectCodebaseAgentConfigResponseSchema:
+    project = Project.get_by_id_or_404(project_id)
+    return _serialize_project_codebase_agent_config(project)
+
+
 @api.put("/projects/{project_id}", response=ProjectResponseSchema)
 def update_project(
     request: HttpRequest,
@@ -352,6 +390,21 @@ def update_project_llm_config(
         else:
             config.save(update_fields=["provider", "llm_name", "date_updated"])
     return _serialize_project_llm_config(project)
+
+
+@api.put("/projects/{project_id}/codebase-agent-config", response=ProjectCodebaseAgentConfigResponseSchema)
+def update_project_codebase_agent_config(
+    request: HttpRequest,
+    project_id: int,
+    payload: ProjectCodebaseAgentConfigUpdateSchema,
+) -> ProjectCodebaseAgentConfigResponseSchema:
+    _require_authenticated_user(request)
+    project = Project.get_by_id_or_404(project_id)
+    with transaction.atomic():
+        config, _ = ProjectCodebaseAgentConfig.get_or_create_for_project(project=project)
+        config.url = payload.url.strip()
+        config.save(update_fields=["url", "date_updated"])
+    return _serialize_project_codebase_agent_config(project)
 
 
 @api.delete("/projects/{project_id}", response={204: None})

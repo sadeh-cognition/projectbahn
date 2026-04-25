@@ -8,7 +8,7 @@ from django.test import Client
 import pytest
 from model_bakery import baker
 
-from projects.models import Feature, Project, ProjectLLMConfig, Task
+from projects.models import Feature, Project, ProjectCodebaseAgentConfig, ProjectLLMConfig, Task
 
 User = get_user_model()
 
@@ -142,6 +142,9 @@ def test_workspace_can_render_project_settings_tab() -> None:
     assert "LLM Config" in content
     assert "Save LLM config" in content
     assert 'hx-put="/api/projects/' + str(project.id) + '/llm-config"' in content
+    assert "Codebase Agent" in content
+    assert "Save codebase agent config" in content
+    assert 'hx-put="/api/projects/' + str(project.id) + '/codebase-agent-config"' in content
     assert "Save project" in content
     assert "Create top-level or nested features" not in content
 
@@ -186,6 +189,22 @@ def test_workspace_project_settings_tab_flags_legacy_api_key_entry() -> None:
     content = response.content.decode("utf-8")
     assert "API key needs re-entry" in content
     assert "legacy hashed API key entry" in content
+
+
+@pytest.mark.django_db
+def test_workspace_project_settings_tab_renders_existing_codebase_agent_config() -> None:
+    client = Client()
+    project = baker.make(Project, name="Platform", description="Core platform")
+    ProjectCodebaseAgentConfig.objects.create(
+        project=project,
+        url="https://agent.example.com/projects/platform",
+    )
+
+    response = client.get("/workspace/", {"project_id": project.id, "tab": "project_settings"})
+
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert 'value="https://agent.example.com/projects/platform"' in content
 
 
 @pytest.mark.django_db

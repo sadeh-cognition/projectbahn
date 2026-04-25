@@ -15,7 +15,7 @@ from projects.frontend.services import (
     features_for_project,
     flatten_feature_tree,
 )
-from projects.models import Feature, Project, ProjectLLMConfig, Task
+from projects.models import Feature, Project, ProjectCodebaseAgentConfig, ProjectLLMConfig, Task
 
 User = get_user_model()
 
@@ -106,6 +106,7 @@ def _build_workspace_context(
         "projects": projects,
         "selected_project": selected_project,
         "active_tab": _active_tab_from_request(request),
+        "codebase_agent_config": ProjectCodebaseAgentConfig.get_for_project(selected_project),
         "llm_config": ProjectLLMConfig.get_for_project(selected_project),
         "feature_tree": feature_tree,
         "feature_options": feature_options,

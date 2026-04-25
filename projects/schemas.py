@@ -48,6 +48,17 @@ class ProjectLLMConfigResponseSchema(Schema):
     date_updated: datetime
 
 
+class ProjectCodebaseAgentConfigUpdateSchema(Schema):
+    url: str = ""
+
+
+class ProjectCodebaseAgentConfigResponseSchema(Schema):
+    project_id: int
+    url: str
+    date_created: datetime
+    date_updated: datetime
+
+
 class FeatureCreateSchema(Schema):
     project_id: int
     parent_feature_id: int | None = None

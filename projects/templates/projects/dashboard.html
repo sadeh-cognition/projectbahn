@@ -111,6 +111,14 @@
                     });
                 });
             },
+            handleUpdateProjectCodebaseAgentConfig(event, projectId) {
+                this.handleResult(event, () => {
+                    this.refreshWorkspace({
+                        project_id: projectId,
+                        tab: "project_settings",
+                    });
+                });
+            },
             handleDeleteProject(event) {
                 this.handleResult(event, () => {
                     this.goToDashboard({});

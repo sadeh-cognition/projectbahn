@@ -114,6 +114,26 @@ class ProjectLLMConfig(models.Model):
         return f"LLM config for {self.project}"
 
 
+class ProjectCodebaseAgentConfig(models.Model):
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name="codebase_agent_config")
+    url = models.URLField(blank=True)
+    date_created = models.DateTimeField(auto_now_add=True)
+    date_updated = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get_or_create_for_project(
+        cls, project: Project
+    ) -> tuple[ProjectCodebaseAgentConfig, bool]:
+        return cls.objects.get_or_create(project=project)
+
+    @classmethod
+    def get_for_project(cls, project: Project) -> ProjectCodebaseAgentConfig | None:
+        return cls.objects.filter(project=project).first()
+
+    def __str__(self) -> str:
+        return f"Codebase agent config for {self.project}"
+
+
 class Feature(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="features")
     parent_feature = models.ForeignKey(

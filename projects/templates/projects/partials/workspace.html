@@ -145,6 +145,29 @@
                             <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save LLM config</button>
                         </form>
                     </section>
+
+                    <section class="rounded-3xl border border-stone-800 bg-stone-950/60 p-5">
+                        <div class="mb-5">
+                            <p class="text-xs uppercase tracking-[0.3em] text-cyan-400">Configuration</p>
+                            <h3 class="mt-2 text-lg font-semibold text-stone-50">Codebase Agent</h3>
+                            <p class="mt-1 text-sm text-stone-400">Store the project-specific URL used by the codebase agent.</p>
+                        </div>
+                        <form
+                            method="post"
+                            hx-ext="json-enc"
+                            hx-put="/api/projects/{{ selected_project.id }}/codebase-agent-config"
+                            hx-swap="none"
+                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                            hx-on::after-request="window.projbahn.handleUpdateProjectCodebaseAgentConfig(event, {{ selected_project.id }})"
+                            class="space-y-4"
+                        >
+                            <div>
+                                <label class="mb-1 block text-xs uppercase tracking-wide text-stone-400">URL</label>
+                                <input type="url" name="url" value="{{ codebase_agent_config.url|default:'' }}" placeholder="https://example.com/codebase-agent" class="w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                            </div>
+                            <button type="submit" class="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-stone-950">Save codebase agent config</button>
+                        </form>
+                    </section>
                 </div>
             </div>
         {% elif active_tab == "features" %}

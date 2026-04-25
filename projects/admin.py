@@ -6,6 +6,7 @@ from projects.models import (
     FeatureChatMessage,
     FeatureChatThread,
     Project,
+    ProjectCodebaseAgentConfig,
     ProjectLLMConfig,
     Task,
 )
@@ -37,6 +38,12 @@ class ProjectLLMConfigAdmin(admin.ModelAdmin):
         "date_updated",
     )
     search_fields = ("project__name", "provider", "llm_name")
+
+
+@admin.register(ProjectCodebaseAgentConfig)
+class ProjectCodebaseAgentConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "project", "url", "date_created", "date_updated")
+    search_fields = ("project__name", "url")
 
 
 @admin.register(Task)

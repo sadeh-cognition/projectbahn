@@ -9,8 +9,10 @@ import pytest
 from model_bakery import baker
 
 from projects.api import api
-from projects.models import EventLog, Feature, Project, ProjectLLMConfig, Task
+from projects.models import EventLog, Feature, Project, ProjectCodebaseAgentConfig, ProjectLLMConfig, Task
 from projects.schemas import (
+    ProjectCodebaseAgentConfigResponseSchema,
+    ProjectCodebaseAgentConfigUpdateSchema,
     ProjectCreateSchema,
     ProjectLLMConfigResponseSchema,
     ProjectLLMConfigUpdateSchema,
@@ -203,6 +205,60 @@ def test_get_project_llm_config_marks_legacy_hashed_key_as_reentry_required(proj
     assert body.api_key_configured is True
     assert body.api_key_usable is False
     assert body.api_key_requires_reentry is True
+
+
+@pytest.mark.django_db
+def test_get_project_codebase_agent_config_defaults_when_missing(project: Project) -> None:
+    response = client.get(f"/projects/{project.id}/codebase-agent-config")
+
+    assert response.status_code == 200
+    body = ProjectCodebaseAgentConfigResponseSchema.model_validate(response.json())
+    assert body.project_id == project.id
+    assert body.url == ""
+
+
+@pytest.mark.django_db
+def test_update_project_codebase_agent_config_requires_auth(project: Project) -> None:
+    payload = ProjectCodebaseAgentConfigUpdateSchema(url="https://agent.example.com/projects/core")
+
+    response = client.put(f"/projects/{project.id}/codebase-agent-config", json=payload.model_dump())
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required."
+    assert not ProjectCodebaseAgentConfig.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_update_project_codebase_agent_config_persists_url(project: Project, user: User) -> None:
+    payload = ProjectCodebaseAgentConfigUpdateSchema(url="https://agent.example.com/projects/core")
+
+    response = client.put(
+        f"/projects/{project.id}/codebase-agent-config",
+        json=payload.model_dump(),
+        user=user,
+    )
+
+    assert response.status_code == 200
+    body = ProjectCodebaseAgentConfigResponseSchema.model_validate(response.json())
+    assert body.project_id == project.id
+    assert body.url == payload.url
+    config = ProjectCodebaseAgentConfig.objects.get(project=project)
+    assert config.url == payload.url
+
+
+@pytest.mark.django_db
+def test_update_project_codebase_agent_config_trims_url(project: Project, user: User) -> None:
+    payload = ProjectCodebaseAgentConfigUpdateSchema(url="  https://agent.example.com/projects/core  ")
+
+    response = client.put(
+        f"/projects/{project.id}/codebase-agent-config",
+        json=payload.model_dump(),
+        user=user,
+    )
+
+    assert response.status_code == 200
+    body = ProjectCodebaseAgentConfigResponseSchema.model_validate(response.json())
+    assert body.url == "https://agent.example.com/projects/core"
 
 
 @pytest.mark.django_db
