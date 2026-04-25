@@ -165,3 +165,17 @@ class FeatureChatThreadDetailSchema(Schema):
 
 class FeatureChatStreamRequestSchema(Schema):
     text: str
+
+
+class AgentActivityStreamEventSchema(Schema):
+    type: str
+    text: str | None = None
+    status: str | None = None
+    tool: str | None = None
+    label: str | None = None
+    detail: str | None = None
+    step: int | None = None
+    elapsed_ms: int | None = None
+    assistant_message: FeatureChatMessageResponseSchema | None = None
+    thread: FeatureChatThreadResponseSchema | None = None
+    llm_call_id: int | None = None

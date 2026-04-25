@@ -15,6 +15,7 @@
                 featureName: "",
                 threadId: null,
                 available: false,
+                running: false,
             },
             parseResponse(xhr) {
                 if (!xhr.responseText) {
@@ -201,6 +202,7 @@
                     featureName,
                     threadId: null,
                     available: false,
+                    running: false,
                 };
                 const drawer = document.getElementById("feature-chat-drawer");
                 drawer.classList.remove("hidden");
@@ -247,6 +249,20 @@
                     }
                 }
                 this.chatState.available = enabled;
+            },
+            setFeatureChatBusy(busy) {
+                this.chatState.running = busy;
+                for (const selector of [
+                    "#feature-chat-new-thread-form input",
+                    "#feature-chat-new-thread-form button",
+                    "#feature-chat-form textarea",
+                    "#feature-chat-form button",
+                ]) {
+                    const node = document.querySelector(selector);
+                    if (node) {
+                        node.disabled = busy || !this.chatState.available;
+                    }
+                }
             },
             async loadFeatureChatAvailability() {
                 const response = await this.requestJson(`/api/projects/${this.chatState.projectId}/llm-config`);
@@ -345,6 +361,35 @@
                 container.scrollTop = container.scrollHeight;
                 return node;
             },
+            createAgentActivityStreamPanel(assistantNode) {
+                const content = assistantNode.querySelector(".whitespace-pre-wrap");
+                const panel = document.createElement("div");
+                panel.className = "agent-activity-stream mb-3 space-y-2 rounded-lg border border-cyan-500/20 bg-stone-950/40 px-3 py-2";
+                panel.innerHTML = `
+                    <div class="text-[11px] uppercase tracking-wide text-cyan-300">Working</div>
+                    <div class="agent-activity-stream-list space-y-2"></div>
+                `;
+                content.before(panel);
+                return panel;
+            },
+            appendAgentActivityStreamEvent(activityPanel, payload) {
+                const list = activityPanel.querySelector(".agent-activity-stream-list");
+                const row = document.createElement("div");
+                const complete = payload.status === "complete";
+                const marker = complete ? "bg-emerald-300" : "bg-cyan-300";
+                const detail = payload.detail ? `<div class="mt-0.5 text-xs text-stone-500">${this.escapeHtml(payload.detail)}</div>` : "";
+                row.className = "flex gap-2 text-sm text-stone-200";
+                row.innerHTML = `
+                    <span class="mt-1.5 h-2 w-2 flex-none rounded-full ${marker}"></span>
+                    <span class="min-w-0">
+                        <span class="block">${this.escapeHtml(payload.label || "Working with project context")}</span>
+                        ${detail}
+                    </span>
+                `;
+                list.appendChild(row);
+                const container = document.getElementById("feature-chat-messages");
+                container.scrollTop = container.scrollHeight;
+            },
             async selectFeatureChatThread(threadId) {
                 this.chatState.threadId = threadId;
                 const response = await this.requestJson(`/api/features/${this.chatState.featureId}/chat-threads/${threadId}`);
@@ -391,18 +436,22 @@
                     return;
                 }
                 const input = document.getElementById("feature-chat-input");
-                const form = document.getElementById("feature-chat-form");
                 const text = input.value.trim();
                 if (!text) {
                     return;
                 }
                 input.value = "";
-                const submitButton = form.querySelector("button[type='submit']");
-                submitButton.disabled = true;
+                this.setFeatureChatBusy(true);
                 this.setFeatureChatStatus("");
                 this.appendFeatureChatMessage("user", text);
                 const assistantNode = this.appendFeatureChatMessage("assistant", "");
                 const assistantContent = assistantNode.querySelector(".whitespace-pre-wrap");
+                const activityPanel = this.createAgentActivityStreamPanel(assistantNode);
+                this.appendAgentActivityStreamEvent(activityPanel, {
+                    status: "running",
+                    label: "Preparing feature chat",
+                    detail: "Sending your message to the agent.",
+                });
 
                 try {
                     const response = await fetch(
@@ -442,7 +491,16 @@
                             if (payload.type === "chunk") {
                                 assistantContent.textContent += payload.text;
                             }
+                            if (payload.type === "activity") {
+                                this.appendAgentActivityStreamEvent(activityPanel, payload);
+                            }
+                            if (payload.type === "error") {
+                                assistantNode.remove();
+                                this.setFeatureChatStatus(payload.detail || "Feature chat failed.");
+                                return;
+                            }
                             if (payload.type === "done") {
+                                activityPanel.remove();
                                 assistantContent.textContent = payload.assistant_message.text;
                                 await this.loadFeatureChatThreads(this.chatState.threadId);
                             }
@@ -452,7 +510,7 @@
                     assistantNode.remove();
                     this.setFeatureChatStatus(error instanceof Error ? error.message : "Feature chat failed.");
                 } finally {
-                    submitButton.disabled = false;
+                    this.setFeatureChatBusy(false);
                 }
             },
         };

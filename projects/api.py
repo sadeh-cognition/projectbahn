@@ -17,7 +17,7 @@ from projects.feature_chat import (
     FeatureChatConfigurationError,
     create_feature_chat_exchange,
     create_feature_chat_thread,
-    iter_feature_chat_response_text,
+    iter_agent_activity_stream_response_events,
     prepare_feature_chat_request,
     serialize_message,
     serialize_thread,
@@ -679,13 +679,18 @@ def stream_feature_chat_message(
 
     def event_stream() -> Any:
         assistant_chunks: list[str] = []
-        for chunk in iter_feature_chat_response_text(
-            feature=thread.feature,
-            config=config,
-            module_inputs=module_inputs,
-        ):
-            assistant_chunks.append(chunk)
-            yield json.dumps({"type": "chunk", "text": chunk}) + "\n"
+        try:
+            for event in iter_agent_activity_stream_response_events(
+                feature=thread.feature,
+                config=config,
+                module_inputs=module_inputs,
+            ):
+                if event["type"] == "chunk":
+                    assistant_chunks.append(str(event["text"]))
+                yield json.dumps(event) + "\n"
+        except Exception as exc:
+            yield json.dumps({"type": "error", "detail": str(exc) or "Feature chat failed."}) + "\n"
+            return
 
         _user_message, assistant_message = create_feature_chat_exchange(
             thread=thread,

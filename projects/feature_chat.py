@@ -1,4 +1,11 @@
+import asyncio
+import contextvars
+import json
+import re
+import threading
 from dataclasses import dataclass
+from queue import Queue
+from time import perf_counter
 from typing import Any, Iterator
 
 import dspy
@@ -12,7 +19,9 @@ from projects.models import (
     ProjectLLMConfig,
     Task,
 )
-from projects.project_memory import build_feature_chat_project_context, get_project_memory_store
+from projects.project_memory import (
+    get_project_memory_store,
+)
 
 
 class FeatureChatConfigurationError(ValueError):
@@ -29,7 +38,6 @@ class FeatureChatSignature(dspy.Signature):
     project_description: str = dspy.InputField()
     feature_name: str = dspy.InputField()
     feature_description: str = dspy.InputField()
-    project_context: str = dspy.InputField()
     conversation_history: dspy.History = dspy.InputField()
     user_message: str = dspy.InputField()
     assistant_reply: str = dspy.OutputField()
@@ -55,7 +63,6 @@ class FeatureChatModule(dspy.Module):
         project_description: str,
         feature_name: str,
         feature_description: str,
-        project_context: str,
         conversation_history: dspy.History,
         user_message: str,
     ) -> dspy.Prediction:
@@ -64,7 +71,6 @@ class FeatureChatModule(dspy.Module):
             project_description=project_description,
             feature_name=feature_name,
             feature_description=feature_description,
-            project_context=project_context,
             conversation_history=conversation_history,
             user_message=user_message,
         )
@@ -88,9 +94,9 @@ class FeatureChatProjectTools:
             )
             features = self._get_features_in_order(feature_ids)
         else:
-            queryset = Feature.get_features_for_project_with_relations(self.feature.project_id).exclude(
-                id=self.feature.id
-            )
+            queryset = Feature.get_features_for_project_with_relations(
+                self.feature.project_id
+            ).exclude(id=self.feature.id)
             features = list(queryset.order_by("id")[:cleaned_limit])
         if not features:
             if cleaned_query:
@@ -142,7 +148,9 @@ class FeatureChatProjectTools:
                 assignee=cleaned_assignee,
             )
         else:
-            queryset = Task.get_base_queryset_with_relations().filter(feature__project_id=self.feature.project_id)
+            queryset = Task.get_base_queryset_with_relations().filter(
+                feature__project_id=self.feature.project_id
+            )
             tasks = list(queryset.order_by("-date_updated", "-id")[:cleaned_limit])
         if not tasks:
             return "No project tasks matched the supplied filters."
@@ -180,11 +188,17 @@ class FeatureChatProjectTools:
 
         features_by_id = {
             feature.id: feature
-            for feature in Feature.get_features_for_project_with_relations(self.feature.project_id)
+            for feature in Feature.get_features_for_project_with_relations(
+                self.feature.project_id
+            )
             .filter(id__in=feature_ids)
             .exclude(id=self.feature.id)
         }
-        return [features_by_id[feature_id] for feature_id in feature_ids if feature_id in features_by_id]
+        return [
+            features_by_id[feature_id]
+            for feature_id in feature_ids
+            if feature_id in features_by_id
+        ]
 
     def _get_tasks_in_order(
         self,
@@ -210,6 +224,201 @@ class FeatureChatProjectTools:
 
         tasks_by_id = {task.id: task for task in queryset}
         return [tasks_by_id[task_id] for task_id in task_ids if task_id in tasks_by_id]
+
+
+AgentActivityStreamEvent = dict[str, Any]
+
+
+class AgentActivityStreamStatusProvider(dspy.streaming.StatusMessageProvider):
+    def __init__(self) -> None:
+        self._tool_started_at: list[float] = []
+        self._lm_started_at: list[float] = []
+        self._tool_step = 0
+        self._lm_step = 0
+
+    def tool_start_status_message(self, instance: Any, inputs: dict[str, Any]) -> str | None:
+        tool_name = getattr(instance, "name", "")
+        if tool_name not in {"search_other_features", "search_project_tasks"}:
+            return None
+
+        self._tool_step += 1
+        self._tool_started_at.append(perf_counter())
+        return json.dumps(
+            {
+                "type": "activity",
+                "status": "running",
+                "tool": tool_name,
+                "label": _build_tool_running_label(tool_name),
+                "detail": _summarize_tool_inputs(inputs),
+                "step": self._tool_step,
+            }
+        )
+
+    def tool_end_status_message(self, outputs: Any) -> str:
+        output_text = str(outputs)
+        tool_name = _infer_tool_name_from_output(output_text)
+        elapsed_ms = self._pop_elapsed_ms(self._tool_started_at)
+        return json.dumps(
+            {
+                "type": "activity",
+                "status": "complete",
+                "tool": tool_name,
+                "label": _build_tool_complete_label(tool_name, output_text),
+                "detail": _append_elapsed_detail(_summarize_tool_output(output_text), elapsed_ms),
+                "step": self._tool_step,
+                "elapsed_ms": elapsed_ms,
+            }
+        )
+
+    def lm_start_status_message(self, instance: Any, inputs: dict[str, Any]) -> str:
+        del inputs
+        self._lm_step += 1
+        self._lm_started_at.append(perf_counter())
+        model_name = _truncate_status_value(getattr(instance, "model", "configured model"), max_length=100)
+        return json.dumps(
+            {
+                "type": "activity",
+                "status": "running",
+                "tool": "language_model",
+                "label": "Calling language model",
+                "detail": f"model: {model_name}",
+                "step": self._lm_step,
+            }
+        )
+
+    def lm_end_status_message(self, outputs: Any) -> str:
+        del outputs
+        elapsed_ms = self._pop_elapsed_ms(self._lm_started_at)
+        return json.dumps(
+            {
+                "type": "activity",
+                "status": "complete",
+                "tool": "language_model",
+                "label": "Language model finished",
+                "detail": f"elapsed: {_format_elapsed_ms(elapsed_ms)}",
+                "step": self._lm_step,
+                "elapsed_ms": elapsed_ms,
+            }
+        )
+
+    def _pop_elapsed_ms(self, started_at_values: list[float]) -> int | None:
+        if not started_at_values:
+            return None
+        started_at = started_at_values.pop()
+        return max(0, round((perf_counter() - started_at) * 1000))
+
+
+def _build_tool_running_label(tool_name: str) -> str:
+    labels = {
+        "search_other_features": "Searching related features",
+        "search_project_tasks": "Searching project tasks",
+    }
+    return labels.get(tool_name, "Using project context")
+
+
+def _build_tool_complete_label(tool_name: str, output_text: str) -> str:
+    if tool_name == "search_other_features":
+        count = _count_result_lines(output_text, prefix="- Feature ")
+        if count == 1:
+            return "Found 1 related feature"
+        return f"Found {count} related features"
+    if tool_name == "search_project_tasks":
+        count = _count_result_lines(output_text, prefix="- Task ")
+        if count == 1:
+            return "Found 1 matching task"
+        return f"Found {count} matching tasks"
+    return "Project context search complete"
+
+
+def _summarize_tool_inputs(inputs: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ["query", "feature_name", "status", "assignee", "limit"]:
+        value = inputs.get(key)
+        if value is None or value == "":
+            continue
+        parts.append(f"{key}: {_truncate_status_value(value)}")
+    if not parts:
+        return "Using current project context."
+    return ", ".join(parts)
+
+
+def _summarize_tool_output(output_text: str) -> str:
+    first_line = output_text.strip().splitlines()[0] if output_text.strip() else ""
+    if not first_line:
+        return "No details returned."
+    return _truncate_status_value(first_line, max_length=120)
+
+
+def _append_elapsed_detail(detail: str, elapsed_ms: int | None) -> str:
+    if elapsed_ms is None:
+        return detail
+    return f"{detail} elapsed: {_format_elapsed_ms(elapsed_ms)}"
+
+
+def _format_elapsed_ms(elapsed_ms: int | None) -> str:
+    if elapsed_ms is None:
+        return "unknown"
+    if elapsed_ms < 1000:
+        return f"{elapsed_ms} ms"
+    return f"{elapsed_ms / 1000:.1f} s"
+
+
+def _truncate_status_value(value: Any, *, max_length: int = 80) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value)).strip()
+    if len(cleaned) <= max_length:
+        return cleaned
+    return f"{cleaned[: max_length - 1]}..."
+
+
+def _infer_tool_name_from_output(output_text: str) -> str:
+    if output_text.startswith("Other project features:") or "other features matched" in output_text:
+        return "search_other_features"
+    if output_text.startswith("Project tasks:") or "project tasks matched" in output_text:
+        return "search_project_tasks"
+    return "project_context"
+
+
+def _count_result_lines(output_text: str, *, prefix: str) -> int:
+    return sum(1 for line in output_text.splitlines() if line.startswith(prefix))
+
+
+def _parse_status_message_event(message: str) -> AgentActivityStreamEvent | None:
+    try:
+        payload = json.loads(message)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or payload.get("type") != "activity":
+        return None
+    return payload
+
+
+def _sync_iter_async_stream(async_generator: Any) -> Iterator[Any]:
+    queue: Queue[Any] = Queue()
+    stop_sentinel = object()
+    context = contextvars.copy_context()
+
+    def producer() -> None:
+        async def runner() -> None:
+            try:
+                async for item in async_generator:
+                    queue.put(item)
+            except BaseException as exc:
+                queue.put(exc)
+            finally:
+                queue.put(stop_sentinel)
+
+        context.run(asyncio.run, runner())
+
+    thread = threading.Thread(target=producer, daemon=True)
+    thread.start()
+
+    while True:
+        item = queue.get()
+        if item is stop_sentinel:
+            break
+        if isinstance(item, BaseException):
+            raise item
+        yield item
 
 
 @dataclass(slots=True)
@@ -287,7 +496,6 @@ def build_stream_lm_kwargs(config: ProjectLLMConfig) -> dict[str, Any]:
 def build_feature_chat_module_inputs(
     *,
     thread: FeatureChatThread,
-    project_context: str,
     conversation_history: dspy.History,
     user_message: str,
 ) -> dict[str, Any]:
@@ -296,7 +504,6 @@ def build_feature_chat_module_inputs(
         "project_description": thread.feature.project.description,
         "feature_name": thread.feature.name,
         "feature_description": thread.feature.description,
-        "project_context": project_context,
         "conversation_history": conversation_history,
         "user_message": user_message,
     }
@@ -307,7 +514,6 @@ def prepare_feature_chat_request(
     thread: FeatureChatThread,
     text: str,
     user: object,
-    project_context: str | None = None,
 ) -> tuple[str, ProjectLLMConfig, dict[str, Any]]:
     del user
     cleaned_text = text.strip()
@@ -317,12 +523,6 @@ def prepare_feature_chat_request(
     config = thread.feature.project.get_project_llm_config()
     module_inputs = build_feature_chat_module_inputs(
         thread=thread,
-        project_context=project_context
-        if project_context is not None
-        else build_feature_chat_project_context(
-            feature=thread.feature,
-            user_message=cleaned_text,
-        ),
         conversation_history=build_conversation_history(thread),
         user_message=cleaned_text,
     )
@@ -332,24 +532,48 @@ def prepare_feature_chat_request(
 def iter_feature_chat_response_text(
     *, feature: Feature, config: ProjectLLMConfig, module_inputs: dict[str, Any]
 ) -> Iterator[str]:
+    for event in iter_agent_activity_stream_response_events(
+        feature=feature,
+        config=config,
+        module_inputs=module_inputs,
+    ):
+        if event["type"] == "chunk":
+            yield str(event["text"])
+
+
+def iter_agent_activity_stream_response_events(
+    *, feature: Feature, config: ProjectLLMConfig, module_inputs: dict[str, Any]
+) -> Iterator[AgentActivityStreamEvent]:
+    yield {
+        "type": "activity",
+        "status": "running",
+        "tool": "feature_chat",
+        "label": "Reviewing feature context",
+        "detail": "Preparing the agent request.",
+    }
     lm = dspy.LM(**build_stream_lm_kwargs(config))
     module = FeatureChatModule(feature=feature)
     stream_module = dspy.streamify(
         module,
+        status_message_provider=AgentActivityStreamStatusProvider(),
         stream_listeners=[
             dspy.streaming.StreamListener(signature_field_name="assistant_reply"),
         ],
-        async_streaming=False,
     )
     final_prediction: dspy.Prediction | None = None
     yielded_chunk = False
 
     with dspy.context(lm=lm):
-        for value in stream_module(**module_inputs):
+        for value in _sync_iter_async_stream(stream_module(**module_inputs)):
             if isinstance(value, dspy.streaming.StreamResponse):
                 if value.chunk:
                     yielded_chunk = True
-                    yield value.chunk
+                    yield {"type": "chunk", "text": value.chunk}
+                continue
+            if isinstance(value, dspy.streaming.StatusMessage):
+                event = _parse_status_message_event(value.message)
+                if event is not None:
+                    yield event
                 continue
             if isinstance(value, dspy.Prediction):
                 final_prediction = value
@@ -357,7 +581,7 @@ def iter_feature_chat_response_text(
     if final_prediction is None:
         raise RuntimeError("Feature chat stream completed without a final prediction.")
     if not yielded_chunk and final_prediction.assistant_reply:
-        yield final_prediction.assistant_reply
+        yield {"type": "chunk", "text": final_prediction.assistant_reply}
 
 
 @transaction.atomic
@@ -397,10 +621,6 @@ def generate_feature_chat_reply(
             project_description=thread.feature.project.description,
             feature_name=thread.feature.name,
             feature_description=thread.feature.description,
-            project_context=build_feature_chat_project_context(
-                feature=thread.feature,
-                user_message=cleaned_text,
-            ),
             conversation_history=build_conversation_history(thread),
             user_message=cleaned_text,
         )

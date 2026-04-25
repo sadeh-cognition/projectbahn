@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import dspy
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ImproperlyConfigured
 
 from ninja.testing import TestClient
 
@@ -16,6 +16,7 @@ from projbahn import settings as app_settings
 from projbahn.dspy_settings import DSPySettings
 from projects.api import api
 from projects.feature_chat import (
+    AgentActivityStreamStatusProvider,
     FeatureChatModule,
     FeatureChatProjectTools,
     build_conversation_history,
@@ -31,7 +32,11 @@ from projects.observability import (
     reset_dspy_mlflow_state,
 )
 from projects.project_memory import sync_feature_memory, sync_task_memory
-from projects.schemas import FeatureChatThreadDetailSchema, FeatureChatThreadResponseSchema
+from projects.schemas import (
+    AgentActivityStreamEventSchema,
+    FeatureChatThreadDetailSchema,
+    FeatureChatThreadResponseSchema,
+)
 
 client = TestClient(api)
 User = get_user_model()
@@ -314,7 +319,6 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
 
     module_inputs = build_feature_chat_module_inputs(
         thread=thread,
-        project_context="All saved project features/tasks from mem0:\n- Feature #1",
         conversation_history=dspy.History(
             messages=[{"user_message": "What exists already?", "assistant_reply": "Existing guidance"}]
         ),
@@ -326,7 +330,6 @@ def test_build_feature_chat_module_inputs_returns_dspy_inputs(
         "project_description": "Core platform",
         "feature_name": "Authentication",
         "feature_description": "Authentication feature",
-        "project_context": "All saved project features/tasks from mem0:\n- Feature #1",
         "conversation_history": dspy.History(
             messages=[{"user_message": "What exists already?", "assistant_reply": "Existing guidance"}]
         ),
@@ -456,6 +459,85 @@ def test_feature_chat_module_uses_dspy_react_with_project_tools(feature: Feature
     assert set(module.respond.tools) == {"search_other_features", "search_project_tasks", "finish"}
 
 
+def test_agent_activity_stream_provider_formats_sanitized_start_event() -> None:
+    class ToolInstance:
+        name = "search_project_tasks"
+
+    provider = AgentActivityStreamStatusProvider()
+
+    message = provider.tool_start_status_message(
+        ToolInstance(),
+        {
+            "query": "RBAC\nwith admin permissions",
+            "status": "in_progress",
+            "limit": 5,
+        },
+    )
+
+    assert message is not None
+    event = AgentActivityStreamEventSchema.model_validate(json.loads(message))
+    assert event.type == "activity"
+    assert event.status == "running"
+    assert event.tool == "search_project_tasks"
+    assert event.label == "Searching project tasks"
+    assert event.detail == "query: RBAC with admin permissions, status: in_progress, limit: 5"
+    assert event.step == 1
+
+
+def test_agent_activity_stream_provider_formats_complete_event() -> None:
+    class ToolInstance:
+        name = "search_project_tasks"
+
+    provider = AgentActivityStreamStatusProvider()
+
+    provider.tool_start_status_message(ToolInstance(), {"query": "RBAC", "limit": 5})
+    message = provider.tool_end_status_message(
+        "Project tasks:\n"
+        "- Task 1: Build roles [status=todo, feature=Auth, assignee=alex]. Description: Add RBAC\n"
+        "- Task 2: Test roles [status=todo, feature=Auth, assignee=alex]. Description: Add coverage"
+    )
+
+    event = AgentActivityStreamEventSchema.model_validate(json.loads(message))
+    assert event.type == "activity"
+    assert event.status == "complete"
+    assert event.tool == "search_project_tasks"
+    assert event.label == "Found 2 matching tasks"
+    assert event.detail is not None
+    assert event.detail.startswith("Project tasks: elapsed: ")
+    assert event.step == 1
+    assert event.elapsed_ms is not None
+    assert event.elapsed_ms >= 0
+
+
+def test_agent_activity_stream_provider_formats_lm_events_with_elapsed_time() -> None:
+    class LMInstance:
+        model = "groq/llama-3.1-8b-instant"
+
+    provider = AgentActivityStreamStatusProvider()
+
+    start_message = provider.lm_start_status_message(LMInstance(), {})
+    time.sleep(0.001)
+    end_message = provider.lm_end_status_message({})
+
+    start_event = AgentActivityStreamEventSchema.model_validate(json.loads(start_message))
+    end_event = AgentActivityStreamEventSchema.model_validate(json.loads(end_message))
+    assert start_event.type == "activity"
+    assert start_event.status == "running"
+    assert start_event.tool == "language_model"
+    assert start_event.label == "Calling language model"
+    assert start_event.detail == "model: groq/llama-3.1-8b-instant"
+    assert start_event.step == 1
+    assert end_event.type == "activity"
+    assert end_event.status == "complete"
+    assert end_event.tool == "language_model"
+    assert end_event.label == "Language model finished"
+    assert end_event.detail is not None
+    assert end_event.detail.startswith("elapsed: ")
+    assert end_event.step == 1
+    assert end_event.elapsed_ms is not None
+    assert end_event.elapsed_ms >= 0
+
+
 @pytest.mark.django_db
 def test_build_conversation_history_returns_dspy_history(feature: Feature, user: User) -> None:
     thread = FeatureChatThread.objects.create(
@@ -513,7 +595,6 @@ def test_prepare_feature_chat_request_builds_dspy_module_inputs_without_persisti
         thread=thread,
         text="How should we build login?",
         user=user,
-        project_context="All saved project features/tasks from mem0:\n- Feature #1",
     )
 
     assert user_text == "How should we build login?"
@@ -522,7 +603,6 @@ def test_prepare_feature_chat_request_builds_dspy_module_inputs_without_persisti
     assert module_inputs["project_description"] == "Core platform"
     assert module_inputs["feature_name"] == "Authentication"
     assert module_inputs["feature_description"] == "Authentication feature"
-    assert module_inputs["project_context"] == "All saved project features/tasks from mem0:\n- Feature #1"
     assert module_inputs["conversation_history"] == dspy.History(
         messages=[{"user_message": "", "assistant_reply": "Existing guidance"}]
     )
@@ -586,14 +666,20 @@ def test_stream_feature_chat_returns_ndjson_and_persists_messages(feature: Featu
     assert response["Content-Type"] == "application/x-ndjson"
     assert response["Cache-Control"] == "no-cache"
     assert response["X-Accel-Buffering"] == "no"
-    events = [json.loads(line) for line in response.content.decode("utf-8").splitlines() if line.strip()]
-    assert any(event["type"] == "chunk" for event in events)
-    done_event = next(event for event in events if event["type"] == "done")
-    assert done_event["assistant_message"]["text"]
-    assert isinstance(done_event["assistant_message"]["date_created"], str)
-    assert isinstance(done_event["thread"]["date_created"], str)
-    assert FeatureChatThreadResponseSchema.model_validate(done_event["thread"]).id == thread.id
-    assert done_event["llm_call_id"] is None
+    events = [
+        AgentActivityStreamEventSchema.model_validate(json.loads(line))
+        for line in response.content.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    assert events[0].type == "activity"
+    assert events[0].label == "Reviewing feature context"
+    assert any(event.type == "chunk" for event in events)
+    done_event = next(event for event in events if event.type == "done")
+    assert done_event.assistant_message is not None
+    assert done_event.assistant_message.text
+    assert done_event.thread is not None
+    assert done_event.thread.id == thread.id
+    assert done_event.llm_call_id is None
     assert FeatureChatMessage.objects.filter(thread=thread).count() == 2
 
 
@@ -614,10 +700,20 @@ def test_stream_feature_chat_does_not_persist_orphaned_user_message_on_stream_fa
         title="Implementation review",
     )
 
-    with pytest.raises((ImproperlyConfigured, RuntimeError, ValueError)):
-        client.post(
-            f"/features/{feature.id}/chat-threads/{thread.id}/messages/stream",
-            json={"text": "Give me implementation guidance."},
-            user=user,
-        )
+    response = client.post(
+        f"/features/{feature.id}/chat-threads/{thread.id}/messages/stream",
+        json={"text": "Give me implementation guidance."},
+        user=user,
+    )
+    events = [
+        AgentActivityStreamEventSchema.model_validate(json.loads(line))
+        for line in response.content.decode("utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert response.status_code == 200
+    assert events[0].type == "activity"
+    assert events[0].label == "Reviewing feature context"
+    assert events[-1].type == "error"
+    assert events[-1].detail
     assert FeatureChatMessage.objects.filter(thread=thread).count() == 0
