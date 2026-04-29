@@ -19,6 +19,11 @@ from projects.models import (
     ProjectLLMConfig,
     Task,
 )
+from projects.codebase_agent_client import (
+    CodebaseAgentConfigurationError,
+    CodebaseAgentRequestError,
+    stream_codebase_agent_for_project,
+)
 from projects.project_memory import (
     get_project_memory_store,
 )
@@ -31,7 +36,8 @@ class FeatureChatConfigurationError(ValueError):
 class FeatureChatSignature(dspy.Signature):
     """Answer questions about a software project feature with concise, implementation-focused guidance.
 
-    Use the available tools to inspect other project features and tasks when the user needs cross-project context.
+    Use the available tools to inspect the codebase, other project features, and tasks when the user needs
+    implementation context.
     """
 
     project_name: str = dspy.InputField()
@@ -50,6 +56,7 @@ class FeatureChatModule(dspy.Module):
         self.respond = dspy.ReAct(
             FeatureChatSignature,
             tools=[
+                self.project_tools.query_codebase_agent_for_project,
                 self.project_tools.search_other_features,
                 self.project_tools.search_project_tasks,
             ],
@@ -163,6 +170,38 @@ class FeatureChatProjectTools:
             )
         return "\n".join(lines)
 
+    def query_codebase_agent_for_project(self, query: str) -> str:
+        """Ask the configured codebase agent about source code for the current project."""
+        cleaned_query = query.strip()
+        if not cleaned_query:
+            return "Codebase agent query cannot be blank."
+
+        chunks: list[str] = []
+        try:
+            for chunk in stream_codebase_agent_for_project(
+                project=self.feature.project,
+                query=cleaned_query,
+            ):
+                chunks.append(chunk)
+                _emit_side_stream_event(
+                    {
+                        "type": "activity",
+                        "status": "running",
+                        "tool": "query_codebase_agent_for_project",
+                        "label": "Reading codebase agent response",
+                        "detail": _truncate_status_value(chunk, max_length=160),
+                    }
+                )
+        except CodebaseAgentConfigurationError as exc:
+            return str(exc)
+        except CodebaseAgentRequestError as exc:
+            return f"Codebase agent request failed: {exc}"
+
+        result = "".join(chunks).strip()
+        if not result:
+            return "Codebase agent returned no response."
+        return f"Codebase agent response:\n{result}"
+
     def _build_task_search_query(
         self,
         *,
@@ -229,6 +268,17 @@ class FeatureChatProjectTools:
 AgentActivityStreamEvent = dict[str, Any]
 
 
+@dataclass(slots=True)
+class _SideStreamEvent:
+    event: AgentActivityStreamEvent
+
+
+_side_stream_event_sink: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "feature_chat_side_stream_event_sink",
+    default=None,
+)
+
+
 class AgentActivityStreamStatusProvider(dspy.streaming.StatusMessageProvider):
     def __init__(self) -> None:
         self._tool_started_at: list[float] = []
@@ -236,9 +286,15 @@ class AgentActivityStreamStatusProvider(dspy.streaming.StatusMessageProvider):
         self._tool_step = 0
         self._lm_step = 0
 
-    def tool_start_status_message(self, instance: Any, inputs: dict[str, Any]) -> str | None:
+    def tool_start_status_message(
+        self, instance: Any, inputs: dict[str, Any]
+    ) -> str | None:
         tool_name = getattr(instance, "name", "")
-        if tool_name not in {"search_other_features", "search_project_tasks"}:
+        if tool_name not in {
+            "query_codebase_agent_for_project",
+            "search_other_features",
+            "search_project_tasks",
+        }:
             return None
 
         self._tool_step += 1
@@ -264,7 +320,9 @@ class AgentActivityStreamStatusProvider(dspy.streaming.StatusMessageProvider):
                 "status": "complete",
                 "tool": tool_name,
                 "label": _build_tool_complete_label(tool_name, output_text),
-                "detail": _append_elapsed_detail(_summarize_tool_output(output_text), elapsed_ms),
+                "detail": _append_elapsed_detail(
+                    _summarize_tool_output(output_text), elapsed_ms
+                ),
                 "step": self._tool_step,
                 "elapsed_ms": elapsed_ms,
             }
@@ -274,7 +332,9 @@ class AgentActivityStreamStatusProvider(dspy.streaming.StatusMessageProvider):
         del inputs
         self._lm_step += 1
         self._lm_started_at.append(perf_counter())
-        model_name = _truncate_status_value(getattr(instance, "model", "configured model"), max_length=100)
+        model_name = _truncate_status_value(
+            getattr(instance, "model", "configured model"), max_length=100
+        )
         return json.dumps(
             {
                 "type": "activity",
@@ -310,6 +370,7 @@ class AgentActivityStreamStatusProvider(dspy.streaming.StatusMessageProvider):
 
 def _build_tool_running_label(tool_name: str) -> str:
     labels = {
+        "query_codebase_agent_for_project": "Querying codebase agent",
         "search_other_features": "Searching related features",
         "search_project_tasks": "Searching project tasks",
     }
@@ -317,6 +378,10 @@ def _build_tool_running_label(tool_name: str) -> str:
 
 
 def _build_tool_complete_label(tool_name: str, output_text: str) -> str:
+    if tool_name == "query_codebase_agent_for_project":
+        if output_text.startswith("Codebase agent response:"):
+            return "Codebase agent response received"
+        return "Codebase agent query complete"
     if tool_name == "search_other_features":
         count = _count_result_lines(output_text, prefix="- Feature ")
         if count == 1:
@@ -371,9 +436,17 @@ def _truncate_status_value(value: Any, *, max_length: int = 80) -> str:
 
 
 def _infer_tool_name_from_output(output_text: str) -> str:
-    if output_text.startswith("Other project features:") or "other features matched" in output_text:
+    if output_text.startswith("Codebase agent"):
+        return "query_codebase_agent_for_project"
+    if (
+        output_text.startswith("Other project features:")
+        or "other features matched" in output_text
+    ):
         return "search_other_features"
-    if output_text.startswith("Project tasks:") or "project tasks matched" in output_text:
+    if (
+        output_text.startswith("Project tasks:")
+        or "project tasks matched" in output_text
+    ):
         return "search_project_tasks"
     return "project_context"
 
@@ -392,6 +465,12 @@ def _parse_status_message_event(message: str) -> AgentActivityStreamEvent | None
     return payload
 
 
+def _emit_side_stream_event(event: AgentActivityStreamEvent) -> None:
+    sink = _side_stream_event_sink.get()
+    if sink is not None:
+        sink(event)
+
+
 def _sync_iter_async_stream(async_generator: Any) -> Iterator[Any]:
     queue: Queue[Any] = Queue()
     stop_sentinel = object()
@@ -399,12 +478,16 @@ def _sync_iter_async_stream(async_generator: Any) -> Iterator[Any]:
 
     def producer() -> None:
         async def runner() -> None:
+            token = _side_stream_event_sink.set(
+                lambda event: queue.put(_SideStreamEvent(event))
+            )
             try:
                 async for item in async_generator:
                     queue.put(item)
             except BaseException as exc:
                 queue.put(exc)
             finally:
+                _side_stream_event_sink.reset(token)
                 queue.put(stop_sentinel)
 
         context.run(asyncio.run, runner())
@@ -416,6 +499,9 @@ def _sync_iter_async_stream(async_generator: Any) -> Iterator[Any]:
         item = queue.get()
         if item is stop_sentinel:
             break
+        if isinstance(item, _SideStreamEvent):
+            yield item.event
+            continue
         if isinstance(item, BaseException):
             raise item
         yield item
@@ -565,6 +651,9 @@ def iter_agent_activity_stream_response_events(
 
     with dspy.context(lm=lm):
         for value in _sync_iter_async_stream(stream_module(**module_inputs)):
+            if isinstance(value, dict):
+                yield value
+                continue
             if isinstance(value, dspy.streaming.StreamResponse):
                 if value.chunk:
                     yielded_chunk = True
@@ -602,40 +691,6 @@ def create_feature_chat_exchange(
         assistant_text=assistant_text,
     )
     return user_message, assistant_message
-
-
-@transaction.atomic
-def generate_feature_chat_reply(
-    *, thread: FeatureChatThread, text: str, user: object
-) -> FeatureChatReply:
-    del user
-    cleaned_text = text.strip()
-    if not cleaned_text:
-        raise FeatureChatConfigurationError("Message text is required.")
-    config = thread.feature.project.get_project_llm_config()
-    lm = dspy.LM(**build_lm_kwargs(config))
-    module = FeatureChatModule(feature=thread.feature)
-    with dspy.context(lm=lm):
-        prediction = module(
-            project_name=thread.feature.project.name,
-            project_description=thread.feature.project.description,
-            feature_name=thread.feature.name,
-            feature_description=thread.feature.description,
-            conversation_history=build_conversation_history(thread),
-            user_message=cleaned_text,
-        )
-
-    user_message, assistant_message = create_feature_chat_exchange(
-        thread=thread,
-        config=config,
-        user_text=cleaned_text,
-        assistant_text=prediction.assistant_reply,
-    )
-    return FeatureChatReply(
-        user_message=user_message,
-        assistant_message=assistant_message,
-        llm_call_id=None,
-    )
 
 
 def serialize_thread(thread: FeatureChatThread) -> dict[str, Any]:

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 import dspy
 from django.contrib.auth import get_user_model
@@ -25,7 +29,15 @@ from projects.feature_chat import (
     build_stream_lm_kwargs,
     prepare_feature_chat_request,
 )
-from projects.models import Feature, FeatureChatMessage, FeatureChatThread, Project, ProjectLLMConfig, Task
+from projects.models import (
+    Feature,
+    FeatureChatMessage,
+    FeatureChatThread,
+    Project,
+    ProjectCodebaseAgentConfig,
+    ProjectLLMConfig,
+    Task,
+)
 from projects.observability import (
     configure_dspy_mlflow,
     mlflow_tracing_enabled,
@@ -40,6 +52,60 @@ from projects.schemas import (
 
 client = TestClient(api)
 User = get_user_model()
+
+
+@dataclass(slots=True)
+class CodebaseAgentRecordedRequest:
+    method: str
+    path: str
+    body: dict[str, Any] | None
+
+
+class CodebaseAgentFeatureChatTestServer(ThreadingHTTPServer):
+    requests: list[CodebaseAgentRecordedRequest]
+    response_body: list[Any]
+    response_content_type: str
+
+
+class CodebaseAgentFeatureChatHandler(BaseHTTPRequestHandler):
+    server: CodebaseAgentFeatureChatTestServer
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0"))
+        payload = self.rfile.read(content_length).decode("utf-8")
+        body = json.loads(payload) if payload else None
+        self.server.requests.append(
+            CodebaseAgentRecordedRequest(method="POST", path=self.path, body=body)
+        )
+
+        encoded_body = "\n".join(
+            item if isinstance(item, str) else json.dumps(item)
+            for item in self.server.response_body
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", self.server.response_content_type)
+        self.send_header("Content-Length", str(len(encoded_body)))
+        self.end_headers()
+        self.wfile.write(encoded_body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        del format, args
+
+
+@pytest.fixture
+def codebase_agent_server() -> Any:
+    server = CodebaseAgentFeatureChatTestServer(("127.0.0.1", 0), CodebaseAgentFeatureChatHandler)
+    server.requests = []
+    server.response_content_type = "application/x-ndjson"
+    server.response_body = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
 
 
 @pytest.fixture
@@ -451,12 +517,38 @@ def test_feature_chat_project_tools_search_project_tasks_uses_mem0_results(
 
 
 @pytest.mark.django_db
+def test_feature_chat_project_tools_query_codebase_agent_streams_response(
+    feature: Feature,
+    codebase_agent_server: Any,
+) -> None:
+    codebase_agent_server.response_content_type = "application/x-ndjson"
+    codebase_agent_server.response_body = [
+        {"type": "chunk", "text": "Use "},
+        {"type": "chunk", "text": "projects/api.py"},
+    ]
+    ProjectCodebaseAgentConfig.objects.create(
+        project=feature.project,
+        url=f"http://127.0.0.1:{codebase_agent_server.server_port}",
+    )
+    tools = FeatureChatProjectTools(feature=feature)
+
+    result = tools.query_codebase_agent_for_project(query="Where is the project API?")
+
+    assert result == "Codebase agent response:\nUse projects/api.py"
+
+
+@pytest.mark.django_db
 def test_feature_chat_module_uses_dspy_react_with_project_tools(feature: Feature) -> None:
     module = FeatureChatModule(feature=feature)
 
     assert isinstance(module.respond, dspy.ReAct)
     assert module.respond.max_iters == 6
-    assert set(module.respond.tools) == {"search_other_features", "search_project_tasks", "finish"}
+    assert set(module.respond.tools) == {
+        "query_codebase_agent_for_project",
+        "search_other_features",
+        "search_project_tasks",
+        "finish",
+    }
 
 
 def test_agent_activity_stream_provider_formats_sanitized_start_event() -> None:
@@ -482,6 +574,26 @@ def test_agent_activity_stream_provider_formats_sanitized_start_event() -> None:
     assert event.label == "Searching project tasks"
     assert event.detail == "query: RBAC with admin permissions, status: in_progress, limit: 5"
     assert event.step == 1
+
+
+def test_agent_activity_stream_provider_formats_codebase_agent_start_event() -> None:
+    class ToolInstance:
+        name = "query_codebase_agent_for_project"
+
+    provider = AgentActivityStreamStatusProvider()
+
+    message = provider.tool_start_status_message(
+        ToolInstance(),
+        {"query": "Where is login implemented?"},
+    )
+
+    assert message is not None
+    event = AgentActivityStreamEventSchema.model_validate(json.loads(message))
+    assert event.type == "activity"
+    assert event.status == "running"
+    assert event.tool == "query_codebase_agent_for_project"
+    assert event.label == "Querying codebase agent"
+    assert event.detail == "query: Where is login implemented?"
 
 
 def test_agent_activity_stream_provider_formats_complete_event() -> None:

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from typing import Any
 
@@ -31,8 +29,12 @@ def configure_dspy_mlflow(*, mlflow_module: Any | None = None) -> bool:
     if mlflow_module is None:
         import mlflow as mlflow_module
 
-    mlflow_module.set_tracking_uri(app_settings.dspy_settings.mlflow_tracking_uri.strip())
-    mlflow_module.set_experiment(app_settings.dspy_settings.mlflow_experiment_name.strip())
+    mlflow_module.set_tracking_uri(
+        app_settings.dspy_settings.mlflow_tracking_uri.strip()
+    )
+    mlflow_module.set_experiment(
+        app_settings.dspy_settings.mlflow_experiment_name.strip()
+    )
     mlflow_module.dspy.autolog()
     _mlflow_autolog_initialized = True
     return True
