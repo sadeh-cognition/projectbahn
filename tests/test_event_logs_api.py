@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ninja.testing import TestClient
+from tests.api_client import AuthenticatedTestClient as TestClient
 
 import pytest
 from model_bakery import baker

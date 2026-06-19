@@ -9,7 +9,8 @@ urlpatterns = [
     path("projects/", views.project_list, name="project-list"),
     path("workspace/", views.workspace, name="workspace"),
     path("login/", auth_views.LoginView.as_view(template_name="registration/login.html"), name="login"),
-    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("logout/", views.JWTLogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
+    path("api/auth/", include("dj_rest_auth.urls")),
     path("api/", api.urls),
 ]

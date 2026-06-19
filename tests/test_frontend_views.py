@@ -4,6 +4,7 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.test import Client
+from dj_rest_auth.utils import jwt_encode
 
 import pytest
 from model_bakery import baker
@@ -124,6 +125,8 @@ def test_workspace_features_tab_renders_chat_button_for_authenticated_user() -> 
     response = client.get("/workspace/", {"project_id": project.id, "tab": "features"})
 
     assert response.status_code == 200
+    assert response.cookies["projbahn-access"]["httponly"] is True
+    assert response.cookies["projbahn-refresh"]["httponly"] is True
     content = response.content.decode("utf-8")
     assert f"openFeatureChatDrawer({project.id}, {feature.id}, 'Auth')" in content
     assert 'id="feature-chat-drawer"' not in content
@@ -211,6 +214,8 @@ def test_workspace_project_settings_tab_renders_existing_codebase_agent_config()
 def test_workspace_reflects_api_driven_crud_and_task_filtering_flow() -> None:
     client = Client()
     user = baker.make(User, username="alex")
+    access_token, _refresh_token = jwt_encode(user)
+    client.defaults["HTTP_AUTHORIZATION"] = f"Bearer {access_token}"
 
     create_project_response = client.post(
         "/api/projects",

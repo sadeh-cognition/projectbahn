@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
@@ -8,6 +9,9 @@ from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
+from django.contrib.auth.views import LogoutView
+from dj_rest_auth.jwt_auth import set_jwt_cookies, unset_jwt_cookies
+from dj_rest_auth.utils import jwt_encode
 
 from projects.frontend.services import (
     build_feature_options,
@@ -40,19 +44,38 @@ class TaskFilters:
     sort_dir: str = "desc"
 
 
+class JWTLogoutView(LogoutView):
+    def post(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
+        response = super().post(request, *args, **kwargs)
+        unset_jwt_cookies(response)
+        return response
+
+
+def _render_with_jwt(
+    request: HttpRequest,
+    template_name: str,
+    context: Mapping[str, object],
+) -> HttpResponse:
+    response = render(request, template_name, context)
+    if request.user.is_authenticated:
+        access_token, refresh_token = jwt_encode(request.user)
+        set_jwt_cookies(response, access_token, refresh_token)
+    return response
+
+
 def dashboard(request: HttpRequest) -> HttpResponse:
     workspace_context = _build_workspace_context(
         request=request,
         project_id=_parse_int(request.GET.get("project_id")),
     )
-    return render(request, "projects/dashboard.html", workspace_context)
+    return _render_with_jwt(request, "projects/dashboard.html", workspace_context)
 
 
 def project_list(request: HttpRequest) -> HttpResponse:
     context = {
         "projects": list(Project.get_all_ordered()),
     }
-    return render(request, "projects/project_list.html", context)
+    return _render_with_jwt(request, "projects/project_list.html", context)
 
 
 def workspace(request: HttpRequest) -> HttpResponse:
@@ -60,7 +83,7 @@ def workspace(request: HttpRequest) -> HttpResponse:
         request=request,
         project_id=_parse_int(request.GET.get("project_id")),
     )
-    return render(request, "projects/partials/workspace.html", context)
+    return _render_with_jwt(request, "projects/partials/workspace.html", context)
 
 
 def _build_workspace_context(

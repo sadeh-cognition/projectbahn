@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 
+from django.contrib.auth import get_user_model
 from django.test import Client
+from dj_rest_auth.utils import jwt_encode
 
 import pytest
 from model_bakery import baker
@@ -13,7 +15,9 @@ from projects.schemas import ProjectResponseSchema
 
 @pytest.fixture
 def client() -> Client:
-    return Client()
+    user = get_user_model().objects.create_user(username="http-logging-user")
+    access_token, _refresh_token = jwt_encode(user)
+    return Client(HTTP_AUTHORIZATION=f"Bearer {access_token}")
 
 
 @pytest.fixture

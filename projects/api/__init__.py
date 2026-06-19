@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from ninja import NinjaAPI
 
-api = NinjaAPI()
+from projects.api.auth import django_user_jwt_auth
+
+api = NinjaAPI(auth=django_user_jwt_auth)
 
 from projects.api import event_logs as event_logs  # noqa: E402,F401
 from projects.api import feature_chat as feature_chat  # noqa: E402,F401

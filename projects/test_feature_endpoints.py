@@ -1,5 +1,5 @@
 import pytest
-from ninja.testing import TestClient
+from tests.api_client import AuthenticatedTestClient as TestClient
 from model_bakery import baker
 from projects.api import api
 from projects.models import Feature, Project

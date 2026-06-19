@@ -23,6 +23,25 @@ uv run manage.py runserver 8001
 
 Open `http://127.0.0.1:8001/` for the web UI and `http://127.0.0.1:8001/api/docs` for the API docs.
 
+## API authentication
+
+All project API endpoints require a Django user JWT. Obtain access and refresh tokens from `dj-rest-auth`:
+
+```bash
+curl -X POST http://127.0.0.1:8001/api/auth/login/ \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alex","password":"your-password"}'
+```
+
+Send the returned `access` token on subsequent requests:
+
+```bash
+curl http://127.0.0.1:8001/api/projects \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+Browser clients can use the HttpOnly access and refresh cookies set by the login endpoint. Refresh an expired access token with `POST /api/auth/token/refresh/`, and verify one with `POST /api/auth/token/verify/`.
+
 ## DSPy MLflow tracing
 
 This project can publish DSPy traces to MLflow, following the DSPy observability guide.

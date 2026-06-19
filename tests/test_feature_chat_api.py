@@ -11,7 +11,8 @@ from typing import Any
 import dspy
 from django.contrib.auth import get_user_model
 
-from ninja.testing import TestClient
+from ninja.testing import TestClient as NinjaTestClient
+from tests.api_client import AuthenticatedTestClient as TestClient
 
 import pytest
 from model_bakery import baker
@@ -134,10 +135,10 @@ def reset_mlflow_state() -> None:
 
 @pytest.mark.django_db
 def test_list_feature_chat_threads_requires_auth(feature: Feature) -> None:
-    response = client.get(f"/features/{feature.id}/chat-threads")
+    response = NinjaTestClient(api).get(f"/features/{feature.id}/chat-threads")
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Authentication required."
+    assert response.json()["detail"] == "Unauthorized"
 
 
 @pytest.mark.django_db
@@ -199,13 +200,13 @@ def test_create_feature_chat_thread_rejects_blank_title(feature: Feature, user: 
 def test_stream_feature_chat_requires_auth(feature: Feature, user: User) -> None:
     thread = baker.make(FeatureChatThread, feature=feature, owner=user)
 
-    response = client.post(
+    response = NinjaTestClient(api).post(
         f"/features/{feature.id}/chat-threads/{thread.id}/messages/stream",
         json={"text": "How should we build login?"},
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Authentication required."
+    assert response.json()["detail"] == "Unauthorized"
 
 
 @pytest.mark.django_db

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -55,6 +56,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'dj_rest_auth',
     'projects',
 ]
 
@@ -139,6 +142,29 @@ STATIC_URL = 'static/'
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "dashboard"
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
+    ),
+}
+
+REST_AUTH = {
+    "USE_JWT": True,
+    "TOKEN_MODEL": None,
+    "SESSION_LOGIN": False,
+    "JWT_AUTH_COOKIE": "projbahn-access",
+    "JWT_AUTH_REFRESH_COOKIE": "projbahn-refresh",
+    "JWT_AUTH_HTTPONLY": True,
+    "JWT_AUTH_SECURE": not DEBUG,
+    "JWT_AUTH_SAMESITE": "Lax",
+    "JWT_AUTH_COOKIE_USE_CSRF": True,
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+}
 
 dspy_settings = DSPySettings()
 mem0_settings = Mem0Settings()

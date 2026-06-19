@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 
-from ninja.testing import TestClient
+from ninja.testing import TestClient as NinjaTestClient
 
 import pytest
 from model_bakery import baker
@@ -19,6 +19,7 @@ from projects.schemas import (
     ProjectResponseSchema,
     ProjectUpdateSchema,
 )
+from tests.api_client import AuthenticatedTestClient as TestClient
 
 client = TestClient(api)
 User = get_user_model()
@@ -126,10 +127,12 @@ def test_update_project_llm_config_requires_auth(project: Project) -> None:
         api_key="super-secret-key",
     )
 
-    response = client.put(f"/projects/{project.id}/llm-config", json=payload.model_dump())
+    response = NinjaTestClient(api).put(
+        f"/projects/{project.id}/llm-config", json=payload.model_dump()
+    )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Authentication required."
+    assert response.json()["detail"] == "Unauthorized"
     assert not ProjectLLMConfig.objects.filter(project=project).exists()
 
 
@@ -221,10 +224,12 @@ def test_get_project_codebase_agent_config_defaults_when_missing(project: Projec
 def test_update_project_codebase_agent_config_requires_auth(project: Project) -> None:
     payload = ProjectCodebaseAgentConfigUpdateSchema(url="https://agent.example.com/projects/core")
 
-    response = client.put(f"/projects/{project.id}/codebase-agent-config", json=payload.model_dump())
+    response = NinjaTestClient(api).put(
+        f"/projects/{project.id}/codebase-agent-config", json=payload.model_dump()
+    )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Authentication required."
+    assert response.json()["detail"] == "Unauthorized"
     assert not ProjectCodebaseAgentConfig.objects.filter(project=project).exists()
 
 
