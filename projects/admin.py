@@ -9,6 +9,7 @@ from projects.models import (
     ProjectCodebaseAgentConfig,
     ProjectLLMConfig,
     Task,
+    TaskUpdate,
 )
 
 
@@ -51,6 +52,13 @@ class TaskAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "feature", "user", "status", "date_created", "date_updated")
     list_filter = ("feature", "user", "status")
     search_fields = ("title", "description", "status")
+
+
+@admin.register(TaskUpdate)
+class TaskUpdateAdmin(admin.ModelAdmin):
+    list_display = ("id", "task", "category", "user", "created_at", "updated_at")
+    list_filter = ("category", "user")
+    search_fields = ("task__title", "description", "user__username")
 
 
 @admin.register(EventLog)

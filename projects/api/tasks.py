@@ -12,16 +12,37 @@ from projects.api.common import (
     User,
     build_change_details,
     create_event_log,
+    require_authenticated_user,
     serialize_task,
     tasks_queryset,
 )
-from projects.models import EventLog, Feature, Task
+from projects.models import EventLog, Feature, Task, TaskUpdate
 from projects.project_memory import (
     ProjectMemoryError,
     delete_task_memory,
     sync_task_memory,
 )
-from projects.schemas import TaskCreateSchema, TaskResponseSchema, TaskUpdateSchema
+from projects.schemas import (
+    TaskCreateSchema,
+    TaskResponseSchema,
+    TaskUpdateCreateSchema,
+    TaskUpdateEditSchema,
+    TaskUpdateResponseSchema,
+    TaskUpdateSchema,
+)
+
+
+def serialize_task_update(update: TaskUpdate) -> TaskUpdateResponseSchema:
+    return TaskUpdateResponseSchema(
+        id=update.id,
+        task_id=update.task_id,
+        user_id=update.user_id,
+        user_username=update.user.get_username(),
+        category=update.category,
+        description=update.description,
+        created_at=update.created_at,
+        updated_at=update.updated_at,
+    )
 
 
 @api.get("/tasks", response=list[TaskResponseSchema])
@@ -100,6 +121,74 @@ def get_task(request: HttpRequest, task_id: int) -> TaskResponseSchema:
     return serialize_task(task)
 
 
+@api.get("/tasks/{task_id}/updates", response=list[TaskUpdateResponseSchema])
+def list_task_updates(
+    request: HttpRequest,
+    task_id: int,
+) -> list[TaskUpdateResponseSchema]:
+    Task.get_by_id_or_404(task_id)
+    return [serialize_task_update(update) for update in TaskUpdate.get_for_task(task_id)]
+
+
+@api.post("/tasks/{task_id}/updates", response=TaskUpdateResponseSchema)
+def create_task_update(
+    request: HttpRequest,
+    task_id: int,
+    payload: TaskUpdateCreateSchema,
+) -> TaskUpdateResponseSchema:
+    task = Task.get_by_id_or_404(task_id)
+    update = TaskUpdate.create_update(
+        task=task,
+        user=require_authenticated_user(request),
+        category=payload.category,
+        description=payload.description,
+    )
+    return serialize_task_update(TaskUpdate.get_for_task(task_id).get(id=update.id))
+
+
+@api.get(
+    "/tasks/{task_id}/updates/{update_id}",
+    response=TaskUpdateResponseSchema,
+)
+def get_task_update(
+    request: HttpRequest,
+    task_id: int,
+    update_id: int,
+) -> TaskUpdateResponseSchema:
+    return serialize_task_update(
+        TaskUpdate.get_for_task_or_404(task_id=task_id, update_id=update_id)
+    )
+
+
+@api.put(
+    "/tasks/{task_id}/updates/{update_id}",
+    response=TaskUpdateResponseSchema,
+)
+def edit_task_update(
+    request: HttpRequest,
+    task_id: int,
+    update_id: int,
+    payload: TaskUpdateEditSchema,
+) -> TaskUpdateResponseSchema:
+    update = TaskUpdate.get_for_task_or_404(task_id=task_id, update_id=update_id)
+    update.category = payload.category
+    update.description = payload.description
+    update.save(update_fields=["category", "description", "updated_at"])
+    update.refresh_from_db()
+    return serialize_task_update(update)
+
+
+@api.delete("/tasks/{task_id}/updates/{update_id}", response={204: None})
+def delete_task_update(
+    request: HttpRequest,
+    task_id: int,
+    update_id: int,
+) -> Status[None]:
+    update = TaskUpdate.get_for_task_or_404(task_id=task_id, update_id=update_id)
+    update.delete()
+    return Status(204, None)
+
+
 @api.put("/tasks/{task_id}", response=TaskResponseSchema)
 def update_task(
     request: HttpRequest,
@@ -117,6 +206,7 @@ def update_task(
         "status": payload.status,
     }
     event_details = build_change_details(task, updated_values)
+    old_status = task.status
     with transaction.atomic():
         task.feature = feature
         task.user = user
@@ -139,6 +229,13 @@ def update_task(
             event_type=EventLog.EventType.MODIFIED,
             event_details=event_details,
         )
+        if old_status != payload.status:
+            TaskUpdate.create_update(
+                task=task,
+                user=require_authenticated_user(request),
+                category="status",
+                description=f'Status changed from "{old_status}" to "{payload.status}".',
+            )
         try:
             sync_task_memory(task=tasks_queryset().get(id=task.id))
         except ProjectMemoryError as exc:

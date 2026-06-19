@@ -126,6 +126,27 @@ class TaskResponseSchema(Schema):
     date_updated: datetime
 
 
+class TaskUpdateCreateSchema(Schema):
+    category: str
+    description: str
+
+
+class TaskUpdateEditSchema(Schema):
+    category: str
+    description: str
+
+
+class TaskUpdateResponseSchema(Schema):
+    id: int
+    task_id: int
+    user_id: int
+    user_username: str
+    category: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class EventLogResponseSchema(Schema):
     id: int
     entity_type: str

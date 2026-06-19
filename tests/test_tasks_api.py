@@ -8,8 +8,15 @@ import pytest
 from model_bakery import baker
 
 from projects.api import api
-from projects.models import EventLog, Feature, Project, Task
-from projects.schemas import TaskCreateSchema, TaskResponseSchema, TaskUpdateSchema
+from projects.models import EventLog, Feature, Project, Task, TaskUpdate
+from projects.schemas import (
+    TaskCreateSchema,
+    TaskResponseSchema,
+    TaskUpdateCreateSchema,
+    TaskUpdateEditSchema,
+    TaskUpdateResponseSchema,
+    TaskUpdateSchema,
+)
 from tests.mem0_backends import RecordingProjectMemoryStore
 
 client = TestClient(api)
@@ -135,6 +142,92 @@ def test_get_task(task: Task) -> None:
 
 
 @pytest.mark.django_db
+def test_create_and_list_task_updates(task: Task, other_user) -> None:
+    payload = TaskUpdateCreateSchema(
+        category="progress",
+        description="The API contract has been reviewed.",
+    )
+
+    create_response = client.post(
+        f"/tasks/{task.id}/updates",
+        json=payload.model_dump(),
+        user=other_user,
+    )
+
+    assert create_response.status_code == 200
+    created = TaskUpdateResponseSchema.model_validate(create_response.json())
+    assert created.task_id == task.id
+    assert created.user_id == other_user.id
+    assert created.user_username == other_user.username
+    assert created.category == payload.category
+    assert created.description == payload.description
+    assert created.created_at == created.updated_at
+
+    list_response = client.get(f"/tasks/{task.id}/updates", user=other_user)
+
+    assert list_response.status_code == 200
+    updates = [
+        TaskUpdateResponseSchema.model_validate(item) for item in list_response.json()
+    ]
+    assert [update.id for update in updates] == [created.id]
+
+
+@pytest.mark.django_db
+def test_get_edit_and_delete_task_update(task: Task, user) -> None:
+    update = baker.make(
+        TaskUpdate,
+        task=task,
+        user=user,
+        category="risk",
+        description="Waiting for review.",
+    )
+
+    get_response = client.get(f"/tasks/{task.id}/updates/{update.id}", user=user)
+
+    assert get_response.status_code == 200
+    fetched = TaskUpdateResponseSchema.model_validate(get_response.json())
+    assert fetched.id == update.id
+
+    payload = TaskUpdateEditSchema(
+        category="decision",
+        description="Review is complete.",
+    )
+    edit_response = client.put(
+        f"/tasks/{task.id}/updates/{update.id}",
+        json=payload.model_dump(),
+        user=user,
+    )
+
+    assert edit_response.status_code == 200
+    edited = TaskUpdateResponseSchema.model_validate(edit_response.json())
+    assert edited.user_id == user.id
+    assert edited.category == payload.category
+    assert edited.description == payload.description
+    assert edited.updated_at >= edited.created_at
+
+    delete_response = client.delete(
+        f"/tasks/{task.id}/updates/{update.id}",
+        user=user,
+    )
+
+    assert delete_response.status_code == 204
+    assert not TaskUpdate.objects.filter(id=update.id).exists()
+
+
+@pytest.mark.django_db
+def test_task_update_is_scoped_to_task(task: Task, feature: Feature, user) -> None:
+    other_task = baker.make(Task, feature=feature, user=user)
+    update = baker.make(TaskUpdate, task=task, user=user)
+
+    response = client.get(
+        f"/tasks/{other_task.id}/updates/{update.id}",
+        user=user,
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
 def test_update_task(task: Task, feature: Feature, other_user) -> None:
     original_user_id = task.user_id
     payload = TaskUpdateSchema(
@@ -145,7 +238,11 @@ def test_update_task(task: Task, feature: Feature, other_user) -> None:
         status="In progress after API contract review.",
     )
 
-    response = client.put(f"/tasks/{task.id}", json=payload.model_dump())
+    response = client.put(
+        f"/tasks/{task.id}",
+        json=payload.model_dump(),
+        user=other_user,
+    )
 
     assert response.status_code == 200
     body = TaskResponseSchema.model_validate(response.json())
@@ -172,6 +269,12 @@ def test_update_task(task: Task, feature: Feature, other_user) -> None:
         },
         "status": {"old": "Waiting on backend API review.", "new": payload.status},
     }
+    status_update = TaskUpdate.objects.get(task=task, category="status")
+    assert status_update.user == other_user
+    assert status_update.description == (
+        'Status changed from "Waiting on backend API review." '
+        'to "In progress after API contract review.".'
+    )
 
 
 @pytest.mark.django_db

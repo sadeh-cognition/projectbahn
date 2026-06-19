@@ -57,7 +57,7 @@ def test_dashboard_renders_project_tasks_tab_by_default() -> None:
         description="Authentication feature",
     )
     user = baker.make(User, username="alex")
-    baker.make(
+    task = baker.make(
         Task,
         feature=feature,
         user=user,
@@ -74,6 +74,14 @@ def test_dashboard_renders_project_tasks_tab_by_default() -> None:
     assert "Ship login page" in content
     assert "Project task table" in content
     assert "Create top-level or nested features" not in content
+    assert content.count(f'hx-put="/api/tasks/{task.id}"') >= 5
+    assert 'aria-label="Task title"' in content
+    assert 'aria-label="Task description"' in content
+    assert 'aria-label="Task status"' in content
+    assert 'aria-label="Task feature"' in content
+    assert 'aria-label="Task assignee"' in content
+    assert "beginInlineTaskEdit(this)" in content
+    assert "✓" in content
 
 
 @pytest.mark.django_db

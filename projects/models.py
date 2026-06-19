@@ -248,6 +248,53 @@ class Task(models.Model):
         )
 
 
+class TaskUpdate(models.Model):
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="updates")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="task_updates",
+    )
+    category = models.CharField(max_length=100)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.task}: {self.category}"
+
+    @classmethod
+    def get_for_task(cls, task_id: int) -> QuerySet[TaskUpdate]:
+        return cls.objects.select_related("user").filter(task_id=task_id)
+
+    @classmethod
+    def get_for_task_or_404(cls, *, task_id: int, update_id: int) -> TaskUpdate:
+        return get_object_or_404(
+            cls.objects.select_related("user"),
+            id=update_id,
+            task_id=task_id,
+        )
+
+    @classmethod
+    def create_update(
+        cls,
+        *,
+        task: Task,
+        user: Any,
+        category: str,
+        description: str,
+    ) -> TaskUpdate:
+        return cls.objects.create(
+            task=task,
+            user=user,
+            category=category,
+            description=description,
+        )
+
+
 class EventLog(models.Model):
     class EntityType(models.TextChoices):
         PROJECT = "Project", "Project"

@@ -203,6 +203,34 @@
                     });
                 });
             },
+            beginInlineTaskEdit(trigger) {
+                const form = trigger.closest("form");
+                if (!form) {
+                    return;
+                }
+                trigger.classList.add("hidden");
+                const editor = form.querySelector("[data-inline-task-editor]");
+                editor.classList.remove("hidden");
+                editor.classList.add("flex");
+                const input = editor.querySelector("input:not([type='hidden']), textarea, select");
+                if (input) {
+                    input.focus();
+                    if (typeof input.select === "function" && input.tagName !== "SELECT") {
+                        input.select();
+                    }
+                }
+            },
+            cancelInlineTaskEdit(trigger) {
+                const form = trigger.closest("form");
+                if (!form) {
+                    return;
+                }
+                form.reset();
+                const editor = form.querySelector("[data-inline-task-editor]");
+                editor.classList.add("hidden");
+                editor.classList.remove("flex");
+                form.querySelector("[data-inline-task-value]").classList.remove("hidden");
+            },
             async openFeatureChatDrawer(projectId, featureId, featureName) {
                 this.chatState = {
                     projectId,

@@ -636,12 +636,61 @@
                                     {% for task in tasks %}
                                         <tr class="align-top text-stone-200">
                                             <td class="px-4 py-4">
-                                                <div class="font-semibold text-stone-50">{{ task.title }}</div>
-                                                <div class="mt-1 max-w-md text-xs text-stone-400">{{ task.description|default:"No description." }}</div>
+                                                <form method="post" hx-ext="json-enc" hx-put="/api/tasks/{{ task.id }}" hx-swap="none" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})">
+                                                    <input type="hidden" name="feature_id" value="{{ task.feature_id }}">
+                                                    <input type="hidden" name="user_id" value="{{ task.user_id }}">
+                                                    <input type="hidden" name="description" value="{{ task.description }}">
+                                                    <input type="hidden" name="status" value="{{ task.status }}">
+                                                    <button type="button" data-inline-task-value onclick="window.projbahn.beginInlineTaskEdit(this)" class="w-full rounded-lg text-left font-semibold text-stone-50 hover:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-cyan-400">{{ task.title }}</button>
+                                                    <div data-inline-task-editor class="hidden min-w-64 items-center gap-2">
+                                                        <input name="title" required value="{{ task.title }}" aria-label="Task title" class="min-w-0 flex-1 rounded-lg border border-cyan-500/50 bg-stone-900 px-2 py-1.5 text-sm text-stone-100">
+                                                        <button type="submit" aria-label="Save task title" title="Save" class="rounded-lg bg-emerald-400 px-2 py-1.5 font-semibold text-stone-950">✓</button>
+                                                        <button type="button" aria-label="Cancel task title edit" title="Cancel" onclick="window.projbahn.cancelInlineTaskEdit(this)" class="rounded-lg border border-stone-700 px-2 py-1.5 text-stone-300">×</button>
+                                                    </div>
+                                                </form>
+                                                <form method="post" hx-ext="json-enc" hx-put="/api/tasks/{{ task.id }}" hx-swap="none" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})" class="mt-1">
+                                                    <input type="hidden" name="feature_id" value="{{ task.feature_id }}">
+                                                    <input type="hidden" name="user_id" value="{{ task.user_id }}">
+                                                    <input type="hidden" name="title" value="{{ task.title }}">
+                                                    <input type="hidden" name="status" value="{{ task.status }}">
+                                                    <button type="button" data-inline-task-value onclick="window.projbahn.beginInlineTaskEdit(this)" class="w-full max-w-md rounded-lg text-left text-xs text-stone-400 hover:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-cyan-400">{{ task.description|default:"No description." }}</button>
+                                                    <div data-inline-task-editor class="hidden min-w-80 items-start gap-2">
+                                                        <textarea name="description" rows="2" aria-label="Task description" class="min-w-0 flex-1 rounded-lg border border-cyan-500/50 bg-stone-900 px-2 py-1.5 text-xs text-stone-100">{{ task.description }}</textarea>
+                                                        <button type="submit" aria-label="Save task description" title="Save" class="rounded-lg bg-emerald-400 px-2 py-1.5 font-semibold text-stone-950">✓</button>
+                                                        <button type="button" aria-label="Cancel task description edit" title="Cancel" onclick="window.projbahn.cancelInlineTaskEdit(this)" class="rounded-lg border border-stone-700 px-2 py-1.5 text-stone-300">×</button>
+                                                    </div>
+                                                </form>
                                             </td>
-                                            <td class="px-4 py-4">{{ task.status }}</td>
-                                            <td class="px-4 py-4">{{ task.feature_name }}</td>
-                                            <td class="px-4 py-4">{{ task.user_username }}</td>
+                                            <td class="px-4 py-4">
+                                                <form method="post" hx-ext="json-enc" hx-put="/api/tasks/{{ task.id }}" hx-swap="none" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})">
+                                                    <input type="hidden" name="feature_id" value="{{ task.feature_id }}"><input type="hidden" name="user_id" value="{{ task.user_id }}"><input type="hidden" name="title" value="{{ task.title }}"><input type="hidden" name="description" value="{{ task.description }}">
+                                                    <button type="button" data-inline-task-value onclick="window.projbahn.beginInlineTaskEdit(this)" class="w-full rounded-lg text-left hover:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-cyan-400">{{ task.status }}</button>
+                                                    <div data-inline-task-editor class="hidden min-w-56 items-center gap-2">
+                                                        <input name="status" required value="{{ task.status }}" aria-label="Task status" class="min-w-0 flex-1 rounded-lg border border-cyan-500/50 bg-stone-900 px-2 py-1.5 text-sm text-stone-100">
+                                                        <button type="submit" aria-label="Save task status" title="Save" class="rounded-lg bg-emerald-400 px-2 py-1.5 font-semibold text-stone-950">✓</button><button type="button" aria-label="Cancel task status edit" title="Cancel" onclick="window.projbahn.cancelInlineTaskEdit(this)" class="rounded-lg border border-stone-700 px-2 py-1.5 text-stone-300">×</button>
+                                                    </div>
+                                                </form>
+                                            </td>
+                                            <td class="px-4 py-4">
+                                                <form method="post" hx-ext="json-enc" hx-put="/api/tasks/{{ task.id }}" hx-swap="none" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})">
+                                                    <input type="hidden" name="user_id" value="{{ task.user_id }}"><input type="hidden" name="title" value="{{ task.title }}"><input type="hidden" name="description" value="{{ task.description }}"><input type="hidden" name="status" value="{{ task.status }}">
+                                                    <button type="button" data-inline-task-value onclick="window.projbahn.beginInlineTaskEdit(this)" class="w-full rounded-lg text-left hover:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-cyan-400">{{ task.feature_name }}</button>
+                                                    <div data-inline-task-editor class="hidden min-w-56 items-center gap-2">
+                                                        <select name="feature_id" required aria-label="Task feature" class="min-w-0 flex-1 rounded-lg border border-cyan-500/50 bg-stone-900 px-2 py-1.5 text-sm text-stone-100">{% for option in feature_options %}<option value="{{ option.id }}" {% if option.id == task.feature_id %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select>
+                                                        <button type="submit" aria-label="Save task feature" title="Save" class="rounded-lg bg-emerald-400 px-2 py-1.5 font-semibold text-stone-950">✓</button><button type="button" aria-label="Cancel task feature edit" title="Cancel" onclick="window.projbahn.cancelInlineTaskEdit(this)" class="rounded-lg border border-stone-700 px-2 py-1.5 text-stone-300">×</button>
+                                                    </div>
+                                                </form>
+                                            </td>
+                                            <td class="px-4 py-4">
+                                                <form method="post" hx-ext="json-enc" hx-put="/api/tasks/{{ task.id }}" hx-swap="none" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' hx-on::after-request="window.projbahn.handleTaskMutation(event, {{ selected_project.id }})">
+                                                    <input type="hidden" name="feature_id" value="{{ task.feature_id }}"><input type="hidden" name="title" value="{{ task.title }}"><input type="hidden" name="description" value="{{ task.description }}"><input type="hidden" name="status" value="{{ task.status }}">
+                                                    <button type="button" data-inline-task-value onclick="window.projbahn.beginInlineTaskEdit(this)" class="w-full rounded-lg text-left hover:bg-stone-900 focus:outline-none focus:ring-2 focus:ring-cyan-400">{{ task.user_username }}</button>
+                                                    <div data-inline-task-editor class="hidden min-w-48 items-center gap-2">
+                                                        <select name="user_id" required aria-label="Task assignee" class="min-w-0 flex-1 rounded-lg border border-cyan-500/50 bg-stone-900 px-2 py-1.5 text-sm text-stone-100">{% for user in users %}<option value="{{ user.id }}" {% if user.id == task.user_id %}selected{% endif %}>{{ user.username }}</option>{% endfor %}</select>
+                                                        <button type="submit" aria-label="Save task assignee" title="Save" class="rounded-lg bg-emerald-400 px-2 py-1.5 font-semibold text-stone-950">✓</button><button type="button" aria-label="Cancel task assignee edit" title="Cancel" onclick="window.projbahn.cancelInlineTaskEdit(this)" class="rounded-lg border border-stone-700 px-2 py-1.5 text-stone-300">×</button>
+                                                    </div>
+                                                </form>
+                                            </td>
                                             <td class="px-4 py-4 text-xs text-stone-400">{{ task.date_updated|date:"Y-m-d H:i" }}</td>
                                             <td class="px-4 py-4">
                                                 <div class="flex gap-2">
