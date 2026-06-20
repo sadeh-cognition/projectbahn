@@ -310,6 +310,7 @@ class EventLog(models.Model):
     entity_id = models.PositiveBigIntegerField()
     event_type = models.CharField(max_length=32, choices=EventType.choices)
     event_details = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:
         return f"{self.entity_type}:{self.entity_id}:{self.event_type}"

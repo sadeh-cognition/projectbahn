@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import timedelta
+from urllib.parse import urlencode
+
+from django.utils import timezone
 from tests.api_client import AuthenticatedTestClient as TestClient
 
 import pytest
@@ -95,6 +99,40 @@ def test_list_event_logs_filters_by_event_and_entity_fields() -> None:
     assert len(body.items) == 1
     assert body.items[0].id == target_log.id
     assert body.items[0].event_details == target_log.event_details
+
+
+@pytest.mark.django_db
+def test_list_event_logs_filters_after_id() -> None:
+    first_log = baker.make(EventLog)
+    second_log = baker.make(EventLog)
+    third_log = baker.make(EventLog)
+
+    response = client.get(f"/event-logs?after_id={first_log.id}")
+
+    assert response.status_code == 200
+    body = EventLogPageResponseSchema.model_validate(response.json())
+    assert [item.id for item in body.items] == [third_log.id, second_log.id]
+    assert all(item.created_at is not None for item in body.items)
+
+
+@pytest.mark.django_db
+def test_list_event_logs_filters_after_time() -> None:
+    older_log = baker.make(EventLog)
+    newer_log = baker.make(EventLog)
+    cutoff = timezone.now()
+    EventLog.objects.filter(id=older_log.id).update(
+        created_at=cutoff - timedelta(seconds=1)
+    )
+    EventLog.objects.filter(id=newer_log.id).update(
+        created_at=cutoff + timedelta(seconds=1)
+    )
+
+    query = urlencode({"after_time": cutoff.isoformat()})
+    response = client.get(f"/event-logs?{query}")
+
+    assert response.status_code == 200
+    body = EventLogPageResponseSchema.model_validate(response.json())
+    assert [item.id for item in body.items] == [newer_log.id]
 
 
 @pytest.mark.django_db

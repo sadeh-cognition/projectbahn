@@ -122,6 +122,7 @@ def serialize_event_log(event_log: EventLog) -> EventLogResponseSchema:
         entity_id=event_log.entity_id,
         event_type=event_log.event_type,
         event_details=event_log.event_details,
+        created_at=event_log.created_at,
     )
 
 

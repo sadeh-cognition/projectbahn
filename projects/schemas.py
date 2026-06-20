@@ -153,6 +153,7 @@ class EventLogResponseSchema(Schema):
     entity_id: int
     event_type: str
     event_details: dict[str, object]
+    created_at: datetime
 
 
 class EventLogPageResponseSchema(Schema):

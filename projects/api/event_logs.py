@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from django.http import HttpRequest
 from ninja.errors import HttpError
 
@@ -15,6 +17,8 @@ def list_event_logs(
     event_type: str | None = None,
     entity_type: str | None = None,
     entity_id: int | None = None,
+    after_id: int | None = None,
+    after_time: datetime | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> EventLogPageResponseSchema:
@@ -31,6 +35,10 @@ def list_event_logs(
         queryset = queryset.filter(entity_type=entity_type)
     if entity_id is not None:
         queryset = queryset.filter(entity_id=entity_id)
+    if after_id is not None:
+        queryset = queryset.filter(id__gt=after_id)
+    if after_time is not None:
+        queryset = queryset.filter(created_at__gt=after_time)
 
     total = queryset.count()
     start = (page - 1) * page_size
